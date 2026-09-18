@@ -1,184 +1,184 @@
-﻿        Компилятор языка программирования Oberon-07/16 для
-            микроконтроллеров STM32 Cortex-M3.
+﻿        Oberon-07/16 programming language compiler for
+            STM32 Cortex-M3 microcontrollers.
 
 ------------------------------------------------------------------------------
-        Параметры командной строки
+        Command line options
 
-  Вход - текстовые файлы модулей с расширением ".ob07", кодировка ANSI или
-UTF-8 с BOM-сигнатурой.
-  Выход - hex-файл прошивки.
-  Параметры:
-  1) имя главного модуля
+  Input - text module files with the ".ob07" extension, ANSI or UTF-8
+encoding with a BOM signature.
+  Output - a hex firmware file.
+  Parameters:
+  1) name of the main module
   2) "stm32cm3"
-  3) необязательные параметры-ключи
-      -out <file_name> имя результирующего файла; по умолчанию,
-          совпадает с именем главного модуля, но с расширением ".hex"
-      -ram <size> размер ОЗУ в килобайтах (4 - 65536) по умолчанию 4
-      -rom <size> размер ПЗУ в килобайтах (16 - 65536) по умолчанию 16
-      -tab <width> размер табуляции (используется для вычисления координат в
-          исходном коде), по умолчанию - 4
-      -nochk <"ptibcwra"> отключить проверки при выполнении
-      -lower разрешить ключевые слова и встроенные идентификаторы в
-          нижнем регистре (по умолчанию)
-      -upper только верхний регистр для ключевых слов и встроенных
-          идентификаторов
-      -def <имя> задать символ условной компиляции
-      -uses вывести список импортированных модулей
+  3) optional switch parameters
+      -out <file_name> name of the resulting file; by default, it
+          matches the name of the main module, but with the ".hex" extension
+      -ram <size> RAM size in kilobytes (4 - 65536), default 4
+      -rom <size> ROM size in kilobytes (16 - 65536), default 16
+      -tab <width> tab width (used to compute positions in the
+          source text), default - 4
+      -nochk <"ptibcwra"> disable runtime checks
+      -lower allow keywords and built-in identifiers in
+          lower case (default)
+      -upper upper case only for keywords and built-in
+          identifiers
+      -def <name> define a conditional compilation symbol
+      -uses print the list of imported modules
 
-      параметр -nochk задается в виде строки из символов:
-      "p" - указатели
-      "t" - типы
-      "i" - индексы
-      "b" - неявное приведение INTEGER к BYTE
-      "c" - диапазон аргумента функции CHR
-      "w" - диапазон аргумента функции WCHR
-      "r" - эквивалентно "bcw"
-      "a" - все проверки
+      the -nochk parameter is given as a string of characters:
+      "p" - pointers
+      "t" - types
+      "i" - indexes
+      "b" - implicit conversion of INTEGER to BYTE
+      "c" - range of the argument of the CHR function
+      "w" - range of the argument of the WCHR function
+      "r" - equivalent to "bcw"
+      "a" - all checks
 
-      Порядок символов может быть любым. Наличие в строке того или иного
-      символа отключает соответствующую проверку.
+      The order of the characters can be arbitrary. The presence of a
+      particular character in the string disables the corresponding check.
 
-      Например: -nochk it - отключить проверку индексов и охрану типа.
-      -nochk a - отключить все отключаемые проверки.
+      For example: -nochk it - disable index checking and type guard.
+      -nochk a - disable all disableable checks.
 
-  Например:
+  For example:
 
   Compiler.exe "C:\example.ob07" stm32cm3 -ram 32 -rom 256 -nochk pti
   Compiler.exe "C:\example.ob07" stm32cm3 -out "C:\Ex1.hex" -ram 8 -rom 32
 
-  В случае успешной компиляции, компилятор передает код завершения 0, иначе 1.
+  If the compilation succeeds, the compiler returns exit code 0, otherwise 1.
 
 ------------------------------------------------------------------------------
-        Отличия от оригинала
+        Differences from the original
 
- 1.     Расширен псевдомодуль SYSTEM
- 2.     В идентификаторах допускается символ "_"
- 3.     Усовершенствован оператор CASE (добавлены константные выражения в
-        метках вариантов и необязательная ветка ELSE)
- 4.     Расширен набор стандартных процедур
- 5.     Семантика охраны/проверки типа уточнена для нулевого указателя
- 6.     Добавлены однострочные комментарии (начинаются с пары символов "//")
- 7.     Разрешено наследование от типа-указателя
- 8.     "Строки" можно заключать также в одиночные кавычки: 'строка'
- 9.     Добавлен тип WCHAR
-10.     Добавлена операция конкатенации строковых и символьных констант
-11.     Добавлены кодовые процедуры
-12.     Возможен импорт модулей с указанием пути и имени файла
-13.     Добавлен специальный синтаксис для условной компиляции (см. CC.txt)
-14.     Имя процедуры в конце объявления (после END) необязательно
-15.     Разрешено использовать нижний регистр для ключевых слов
-
-------------------------------------------------------------------------------
-        Особенности реализации
-
-1.      Основные типы
-
-          Тип              Диапазон значений               Размер, байт
-
-        INTEGER       -2147483648 .. 2147483647                 4
-        REAL          1.17E-38 .. 3.40E+38                      4
-        CHAR          символ ASCII (0X .. 0FFX)                 1
-        BOOLEAN       FALSE, TRUE                               1
-        SET           множество из целых чисел {0 .. 31}        4
-        BYTE          0 .. 255                                  1
-        WCHAR         символ юникода (0X .. 0FFFFX)             2
-
-2.      Максимальная длина идентификаторов - 255 символов
-3.      Максимальная длина строковых констант - 511 символов (UTF-8)
-4.      Максимальная размерность открытых массивов - 5
-5.      Процедура NEW заполняет нулями выделенный блок памяти
-6.      Локальные переменные инициализируются нулями
-7.      В отличие от многих Oberon-реализаций, сборщик мусора и динамическая
-        модульность отсутствуют
-8.      Тип BYTE в выражениях всегда приводится к INTEGER
-9.      Контроль переполнения значений выражений не производится
+ 1.     The SYSTEM pseudo-module has been extended
+ 2.     The "_" character is allowed in identifiers
+ 3.     The CASE statement has been improved (constant expressions have been
+        added to variant labels and an optional ELSE branch has been added)
+ 4.     The set of standard procedures has been extended
+ 5.     Type guard/type check semantics has been refined for a nil pointer
+ 6.     Single-line comments have been added (they start with the pair "//")
+ 7.     Inheritance from a pointer type is allowed
+ 8.     "Strings" can also be enclosed in single quotes: 'string'
+ 9.     The WCHAR type has been added
+10.     Concatenation of string and character constants has been added
+11.     Code procedures have been added
+12.     Modules can be imported with a path and file name specified
+13.     Special syntax for conditional compilation has been added (see CC.txt)
+14.     The procedure name at the end of the declaration (after END) is optional
+15.     Lower case is allowed for keywords
 
 ------------------------------------------------------------------------------
-        Псевдомодуль SYSTEM
+        Implementation notes
 
-  Псевдомодуль SYSTEM содержит низкоуровневые и небезопасные процедуры,
-ошибки при использовании процедур псевдомодуля SYSTEM могут привести к
-повреждению данных времени выполнения и аварийному завершению программы.
+1.      Basic types
 
-        PROCEDURE ADR(v: любой тип): INTEGER
-                v - переменная или процедура;
-                возвращает адрес v
+          Type              Value range                          Size, bytes
 
-        PROCEDURE SADR(x: строковая константа (CHAR UTF-8)): INTEGER
-                возвращает адрес x
+        INTEGER       -2147483648 .. 2147483647                         4
+        REAL          1.17E-38 .. 3.40E+38                              4
+        CHAR          ASCII character (0X .. 0FFX)                      1
+        BOOLEAN       FALSE, TRUE                                       1
+        SET           a set of integers {0 .. 31}                       4
+        BYTE          0 .. 255                                          1
+        WCHAR         unicode character (0X .. 0FFFFX)                  2
 
-        PROCEDURE WSADR(x: строковая константа (WCHAR)): INTEGER
-                возвращает адрес x
+2.      Maximum identifier length - 255 characters
+3.      Maximum length of string constants - 511 characters (UTF-8)
+4.      Maximum number of dimensions of open arrays - 5
+5.      The NEW procedure fills the allocated memory block with zeros
+6.      Local variables are initialized to zeros
+7.      Unlike many Oberon implementations, a garbage collector and dynamic
+        modularity are absent
+8.      The BYTE type is always converted to INTEGER in expressions
+9.      Overflow of expression values is not checked
 
-        PROCEDURE VAL(T; v: любой тип): T
-                v - переменная;
-                интерпретирует v, как переменную типа T
+------------------------------------------------------------------------------
+        SYSTEM pseudo-module
+
+  The SYSTEM pseudo-module contains low-level and unsafe procedures; errors in
+the use of SYSTEM pseudo-module procedures can lead to corruption of runtime
+data and abnormal termination of the program.
+
+        PROCEDURE ADR(v: any type): INTEGER
+                v - a variable or a procedure;
+                returns the address of v
+
+        PROCEDURE SADR(x: string constant (CHAR UTF-8)): INTEGER
+                returns the address of x
+
+        PROCEDURE WSADR(x: string constant (WCHAR)): INTEGER
+                returns the address of x
+
+        PROCEDURE VAL(T; v: any type): T
+                v - a variable;
+                interprets v as a variable of type T
 
         PROCEDURE SIZE(T): INTEGER
-                возвращает размер типа T
+                returns the size of type T
 
         PROCEDURE TYPEID(T): INTEGER
-                T - тип-запись или тип-указатель,
-                возвращает номер типа в таблице типов-записей
+                T - a record type or a pointer type,
+                returns the type number in the table of record types
 
         PROCEDURE INF(): REAL
-                возвращает специальное вещественное значение "бесконечность"
+                returns the special real value "infinity"
 
         PROCEDURE MOVE(Source, Dest, n: INTEGER)
-                Копирует n байт памяти из Source в Dest,
-                области Source и Dest не могут перекрываться
+                Copies n bytes of memory from Source to Dest,
+                the Source and Dest areas must not overlap
 
         PROCEDURE GET(a: INTEGER;
-                VAR v: любой основной тип, PROCEDURE, POINTER)
-                v := Память[a]
+                VAR v: any basic type, PROCEDURE, POINTER)
+                v := Memory[a]
 
         PROCEDURE GET8(a: INTEGER;
                        VAR x: INTEGER, SET, BYTE, CHAR, WCHAR, SYSTEM.CARD32)
-                Эквивалентно
+                Equivalent to
                 SYSTEM.MOVE(a, SYSTEM.ADR(x), 1)
 
         PROCEDURE GET16(a: INTEGER;
                         VAR x: INTEGER, SET, WCHAR, SYSTEM.CARD32)
-                Эквивалентно
+                Equivalent to
                 SYSTEM.MOVE(a, SYSTEM.ADR(x), 2)
 
         PROCEDURE GET32(a: INTEGER; VAR x: INTEGER, SET, SYSTEM.CARD32)
-                Эквивалентно
+                Equivalent to
                 SYSTEM.MOVE(a, SYSTEM.ADR(x), 4)
 
-        PROCEDURE PUT(a: INTEGER; x: любой основной тип, PROCEDURE, POINTER)
-                Память[a] := x;
-                Если x: BYTE или x: WCHAR, то значение x будет расширено
-                до 32 бит, для записи байтов использовать SYSTEM.PUT8,
-                для WCHAR -- SYSTEM.PUT16
+        PROCEDURE PUT(a: INTEGER; x: any basic type, PROCEDURE, POINTER)
+                Memory[a] := x;
+                If x: BYTE or x: WCHAR, then the value of x is extended
+                to 32 bits; to write bytes use SYSTEM.PUT8,
+                for WCHAR -- SYSTEM.PUT16
 
         PROCEDURE PUT8(a: INTEGER;
                        x: INTEGER, SET, BYTE, CHAR, WCHAR, SYSTEM.CARD32)
-                Память[a] := младшие 8 бит (x)
+                Memory[a] := the low 8 bits of (x)
 
         PROCEDURE PUT16(a: INTEGER;
                         x: INTEGER, SET, BYTE, CHAR, WCHAR, SYSTEM.CARD32)
-                Память[a] := младшие 16 бит (x)
+                Memory[a] := the low 16 bits of (x)
 
         PROCEDURE PUT32(a: INTEGER;
                         x: INTEGER, SET, BYTE, CHAR, WCHAR, SYSTEM.CARD32)
-                Память[a] := младшие 32 бит (x)
+                Memory[a] := the low 32 bits of (x)
 
         PROCEDURE CODE(hword1, hword2,... : INTEGER)
-                Вставка машинного кода,
-                hword1, hword2 ... - константы в диапазоне 0..65535,
-                например:
+                Insertion of machine code,
+                hword1, hword2 ... - constants in the range 0..65535,
+                for example:
                 SYSTEM.CODE(0BF30H) (* wfi *)
 
-  Также, в модуле SYSTEM определен тип CARD32 (4 байта). Для типа CARD32 не
-допускаются никакие явные операции, за исключением присваивания.
+  Also, the type CARD32 (4 bytes) is defined in the SYSTEM module. No explicit
+operations are allowed for the CARD32 type, except for assignment.
 
-  Функции псевдомодуля SYSTEM нельзя использовать в константных выражениях.
+  SYSTEM pseudo-module functions cannot be used in constant expressions.
 
 ------------------------------------------------------------------------------
-        Оператор CASE
+        CASE statement
 
-  Синтаксис оператора CASE:
+  Syntax of the CASE statement:
 
         CaseStatement =
                 CASE Expression OF Case {"|" Case}
@@ -187,7 +187,7 @@ UTF-8 с BOM-сигнатурой.
         CaseLabelList = CaseLabels {"," CaseLabels}.
         CaseLabels = ConstExpression [".." ConstExpression].
 
-  Например:
+  For example:
 
         CASE x OF
         |-1:    DoSomething1
@@ -197,193 +197,193 @@ UTF-8 с BOM-сигнатурой.
                 DoSomething4
         END
 
-  В метках вариантов можно использовать константные выражения, ветка ELSE
-необязательна. Если значение x не соответствует ни одному варианту и ELSE
-отсутствует, то программа прерывается с ошибкой времени выполнения.
+  Constant expressions can be used in variant labels, and the ELSE branch is
+optional. If the value of x matches no variant and the ELSE branch is absent,
+the program is terminated with a runtime error.
 
 ------------------------------------------------------------------------------
-        Тип WCHAR
+        WCHAR type
 
-  Тип WCHAR добавлен в язык для удобной поддежки юникода. Для типов WCHAR и
-ARRAY OF WCHAR допускаются все те же операции, как для типов CHAR и
-ARRAY OF CHAR, за исключением встроенной процедуры CHR, которая возвращает
-только тип CHAR. Для получения значения типа WCHAR, следует использовать
-процедуру WCHR вместо CHR. Для правильной работы с типом, необходимо сохранять
-исходный код в кодировке UTF-8 с BOM.
+  The WCHAR type has been added to the language for convenient unicode support.
+For the WCHAR and ARRAY OF WCHAR types, all the same operations are allowed as
+for the CHAR and ARRAY OF CHAR types, except for the built-in procedure CHR,
+which returns only the CHAR type. To obtain a value of type WCHAR, the WCHR
+procedure should be used instead of CHR. For correct operation with the type,
+the source code must be saved in UTF-8 encoding with a BOM.
 
 ------------------------------------------------------------------------------
-        Конкатенация строковых и символьных констант
+        Concatenation of string and character constants
 
-  Допускается конкатенация ("+") константных строк и символов типа CHAR:
+  Concatenation ("+") of constant strings and characters of type CHAR is allowed:
 
   str = CHR(39) + "string" + CHR(39); (* str = "'string'" *)
 
   newline = 0DX + 0AX;
 
 ------------------------------------------------------------------------------
-        Проверка и охрана типа нулевого указателя
+        Type check and type guard of a nil pointer
 
-  Оригинальное сообщение о языке не определяет поведение программы при
-выполнении охраны p(T) и проверки типа p IS T при p = NIL. Во многих
-Oberon-реализациях выполнение такой операции приводит к ошибке времени
-выполнения. В данной реализации охрана типа нулевого указателя не приводит к
-ошибке, а проверка типа дает результат FALSE. В ряде случаев это позволяет
-значительно сократить частоту применения охраны типа.
+  The original language report does not define the behavior of a program when
+the type guard p(T) and the type test p IS T are executed with p = NIL. In many
+Oberon implementations, performing such an operation results in a runtime
+error. In this implementation, a type guard of a nil pointer does not cause an
+error, and the type test yields FALSE. In a number of cases this allows the
+frequency of type guard usage to be reduced significantly.
 
 ------------------------------------------------------------------------------
-        Дополнительные стандартные процедуры
+        Additional standard procedures
 
 
         COPY (x: ARRAY OF CHAR/WCHAR; VAR v: ARRAY OF CHAR/WCHAR);
                 v := x;
-                Если LEN(v) < LEN(x), то строка x будет скопирована
-                не полностью
+                If LEN(v) < LEN(x), then the string x will be copied
+                incompletely
 
         LSR (x, n: INTEGER): INTEGER
-                Логический сдвиг x на n бит вправо.
+                Logical shift of x right by n bits.
 
         MIN (a, b: INTEGER): INTEGER
-                Минимум из двух значений.
+                Minimum of two values.
 
         MAX (a, b: INTEGER): INTEGER
-                Максимум из двух значений.
+                Maximum of two values.
 
         BITS (x: INTEGER): SET
-                Интерпретирует x как значение типа SET.
-                Выполняется на этапе компиляции.
+                Interprets x as a value of type SET.
+                Performed at compile time.
 
         LENGTH (s: ARRAY OF CHAR/WCHAR): INTEGER
-                Длина 0X-завершенной строки s, без учета символа 0X.
-                Если символ 0X отсутствует, функция возвращает длину
-                массива s. s не может быть константой.
+                Length of the 0X-terminated string s, excluding the 0X
+                character. If the 0X character is absent, the function returns
+                the length of the array s. s cannot be a constant.
 
         WCHR (n: INTEGER): WCHAR
-                Преобразование типа, аналогично CHR(n: INTEGER): CHAR
+                Type conversion, similar to CHR(n: INTEGER): CHAR
 
 ------------------------------------------------------------------------------
-        Импорт модулей с указанием пути и имени файла
+        Import of modules with a path and file name
 
-Примеры:
+Examples:
 
-    IMPORT Math IN "./lib/math.ob07"; (* относительно текущего модуля *)
+    IMPORT Math IN "./lib/math.ob07"; (* relative to the current module *)
 
-    IMPORT M1 IN "C:\lib\math.ob07"; (* абсолютный путь *)
-
-------------------------------------------------------------------------------
-        Плавающая точка
-
-  Компилятор предназначен для устройств на ядре Cortex-M3 и, возможно, после
-небольшой доработки, также для Cortex-M0. В таких микроконтроллерах нет
-встроенной поддержки плавающей точки, поэтому операции с вещественными числами
-одинарной точности эмулируются (модуль lib/STM32CM3/FPU.ob07). Компилятор
-подставляет вызовы процедур в месте операций с вещественными числами.
-
-  Сохраняется возможность доработки компилятора в будущем для устройств со
-встроенной поддержкой вещественных чисел.
+    IMPORT M1 IN "C:\lib\math.ob07"; (* absolute path *)
 
 ------------------------------------------------------------------------------
-        Использование регистров общего назначения R0 - R12
+        Floating point
 
-        R0 - R3:  регистровый стэк (промежуточные значения выражений),
-                  волатильные регистры (не требуют сохранения)
+  The compiler is intended for devices with a Cortex-M3 core and, possibly,
+after minor rework, also for Cortex-M0. Such microcontrollers have no built-in
+floating point support, so operations with single-precision real numbers are
+emulated (module lib/STM32CM3/FPU.ob07). The compiler substitutes procedure
+calls at the site of real number operations.
 
-        R4 - R7:  не используются компилятором, могут использоваться в кодовых
-                  процедурах, неволатильные (требуется сохранять перед
-                  использованием и восстанавливать после)
-
-        R8 - R12: зарезервированы для возможного специального назначения в
-                  будущем
-
-------------------------------------------------------------------------------
-        Вызов процедур и кадр стэка
-
-  Правила вызова похожи на соглашение cdecl (x86):
-  - параметры передаются через стэк справа налево
-  - результат, если есть, передается через регистр R0
-  - вызывающая процедура очищает стэк
-
-  Состояние стэка при выполнении процедуры:
-
-  меньшие адреса <- |var3|var2|var1|LR|arg1|arg2|arg3| -> бОльшие адреса
-
-  LR   - сохраненный регистр LR (адрес возврата)
-  argX - параметры в порядке объявления (слева направо)
-  varX - локальные переменные в порядке использования в процедуре
-
-  Размер каждого элемента в стэке (кроме локальных переменных структурных
-  типов) - 1 машинное слово (4 байта). Структурные переменные (массивы и
-  записи) занимают место в стэке в соответствии с их размером (с учетом
-  выравнивания).
-
-  Размещение локальных переменных зависит от их размеров и порядка
-  использования, и в общем случае неопределенно. Если переменная не
-  используется явно, то компилятор не выделяет для нее место в стэке.
+  The possibility of reworking the compiler in the future for devices with
+built-in real number support is retained.
 
 ------------------------------------------------------------------------------
-        Скрытые параметры процедур
+        Use of general purpose registers R0 - R12
 
-  Некоторые процедуры могут иметь скрытые параметры, они отсутствуют в списке
-формальных параметров, но учитываются компилятором при трансляции вызовов.
-Это возможно в следующих случаях:
+        R0 - R3:  register stack (intermediate values of expressions),
+                  volatile registers (do not need to be saved)
 
-1.      Процедура имеет формальный параметр открытый массив:
+        R4 - R7:  not used by the compiler, may be used in code procedures,
+                  non-volatile (must be saved before use and restored
+                  afterwards)
+
+        R8 - R12: reserved for possible special purpose in the
+                  future
+
+------------------------------------------------------------------------------
+        Procedure calls and stack frame
+
+  The calling rules are similar to the cdecl convention (x86):
+  - parameters are passed on the stack from right to left
+  - the result, if any, is passed in register R0
+  - the calling procedure cleans up the stack
+
+  Stack state during execution of a procedure:
+
+  lower addresses <- |var3|var2|var1|LR|arg1|arg2|arg3| -> higher addresses
+
+  LR   - saved LR register (return address)
+  argX - parameters in declaration order (left to right)
+  varX - local variables in order of use in the procedure
+
+  The size of each stack element (except local variables of structural
+  types) is 1 machine word (4 bytes). Structural variables (arrays and
+  records) occupy stack space according to their size (taking alignment
+  into account).
+
+  The placement of local variables depends on their sizes and order of use,
+  and in the general case is undefined. If a variable is not used explicitly,
+  the compiler does not allocate stack space for it.
+
+------------------------------------------------------------------------------
+        Hidden procedure parameters
+
+  Some procedures may have hidden parameters; they are absent from the list of
+formal parameters but are taken into account by the compiler when translating
+calls. This is possible in the following cases:
+
+1.      The procedure has a formal parameter that is an open array:
                 PROCEDURE Proc (x: ARRAY OF ARRAY OF REAL);
-        Вызов транслируется так:
+        The call is translated as follows:
                 Proc(LEN(x), LEN(x[0]), SYSTEM.ADR(x))
-2.      Процедура имеет формальный параметр-переменную типа RECORD:
+2.      The procedure has a formal variable parameter of type RECORD:
                 PROCEDURE Proc (VAR x: Rec);
-        Вызов транслируется так:
+        The call is translated as follows:
                 Proc(SYSTEM.TYPEID(Rec), SYSTEM.ADR(x))
 
 ------------------------------------------------------------------------------
-        Кодовые процедуры
+        Code procedures
 
-  Компилятор поддерживает процедуры, написаные в машинных кодах.
-  Синтаксис:
+  The compiler supports procedures written in machine code.
+  Syntax:
 
-  PROCEDURE "[code]" имя [ (параметры): ТипРезультата ]
-      МашКом, МашКом,... МашКом;
+  PROCEDURE "[code]" name [ (parameters): ResultType ]
+      MachineInstruction, MachineInstruction,... MachineInstruction;
 
-  ";" после заголовка и END "имя" в конце процедуры не ставятся.
-  МашКом - целочисленная константа [0..65535] (в том числе и константное
-  выражение).
+  A ";" after the header and END "name" at the end of the procedure are omitted.
+  MachineInstruction - an integer constant [0..65535] (including a constant
+  expression).
 
-  Примеры:
+  Examples:
 
   PROCEDURE [code] WFI
       0BF30H; (* wfi *)
 
-  (* сумма квадратов (a*a + b*b) -> r0 *)
+  (* sum of squares (a*a + b*b) -> r0 *)
   PROCEDURE [code] SqrSum (a, b: INTEGER): INTEGER
-      0B430H, (* push {r4, r5}    *) (* сохранить все используемые регистры,
-                                        кроме r0, r1, r2, r3 *)
+      0B430H, (* push {r4, r5}    *) (* save all used registers,
+                                        except r0, r1, r2, r3 *)
       09C02H, (* ldr r4, [sp, 8]  *) (* r4 <- a *)
       09D03H, (* ldr r5, [sp, 12] *) (* r5 <- b *)
       04364H, (* muls r4, r4      *) (* r4 := r4 * r4 *)
       0436DH, (* muls r5, r5      *) (* r5 := r5 * r5 *)
-      01960H, (* adds r0, r4, r5  *) (* r0 := r4 + r5; результат в r0 *)
-      0BC30H; (* pop {r4, r5}     *) (* восстановить регистры *)
+      01960H, (* adds r0, r4, r5  *) (* r0 := r4 + r5; result in r0 *)
+      0BC30H; (* pop {r4, r5}     *) (* restore registers *)
 
-  Компилятор автоматически добавляет к такой процедуре команду возврата
-(bx LR). Способ передачи параметров и результата не изменяется. Регистр LR,
-при входе в процедуру не сохраняется.
+  The compiler automatically appends a return instruction (bx LR) to such a
+procedure. The way parameters and the result are passed does not change. The
+LR register is not saved on entry to the procedure.
 
-  Чтобы использовать кодовые процедуры, необходимо импортировать псевдомодуль
-SYSTEM.
+  To use code procedures, it is necessary to import the SYSTEM
+pseudo-module.
 
 ------------------------------------------------------------------------------
-        Обработка прерываний
+        Interrupt handling
 
-  При возникновении прерывания, будет вызван обработчик (если он объявлен).
-Объявление обработчика:
+  When an interrupt occurs, the handler will be called (if it is declared).
+Handler declaration:
 
-    PROCEDURE handler_name [iv]; (* процедура без параметров *)
+    PROCEDURE handler_name [iv]; (* procedure without parameters *)
 
-iv - целочисленная константа (константное выражение), номер вектора прерывания
-в таблице векторов, iv >= 2:
+iv - an integer constant (constant expression), the number of the interrupt
+vector in the vector table, iv >= 2:
 
-     0       начальное значение SP
-     1       сброс
+     0       initial value of SP
+     1       reset
     ...
     15       SysTick
     ...
@@ -391,18 +391,18 @@ iv - целочисленная константа (константное вы�
     60       TIM7
     ...
 
-например:
+for example:
 
-    (* обработчик прерываний от TIM6 *)
+    (* TIM6 interrupt handler *)
     PROCEDURE tim6 [59];
     BEGIN
-        (* код обработки *)
+        (* handling code *)
     END tim6;
 
-  Также, можно объявить общий обработчик (iv = 0), который будет вызван, если
-не назначен индивидуальный. Общий обработчик получает параметр - номер вектора
-прерывания. По значению этого параметра, обработчик должен определить источник
-прерывания и выполнить соответствующие действия:
+  Also, a common handler can be declared (iv = 0), which will be called if no
+individual handler is assigned. The common handler receives a parameter - the
+interrupt vector number. From the value of this parameter, the handler must
+determine the interrupt source and perform the corresponding actions:
 
     PROCEDURE handler (iv: INTEGER) [0];
     BEGIN
@@ -416,39 +416,39 @@ iv - целочисленная константа (константное вы�
     END handler;
 
 ------------------------------------------------------------------------------
-        Обработка ошибок
+        Error handling
 
-  В случае возникновения ошибки при выполнении программы, будет вызван
-пользовательский обработчик (если он объявлен). Перед вызовом обработчика,
-будут запрещены прерывания.
+  If an error occurs during execution of the program, a user handler will be
+called (if it is declared). Before the handler is called, interrupts will be
+disabled.
 
-Объявление обработчика ошибок:
+Declaration of the error handler:
 
     PROCEDURE trap (modNum, modName, err, line: INTEGER) [1];
     BEGIN
     END trap;
 
-    где,
-        modNum  - номер модуля (в отчете о компиляции:
+    where,
+        modNum  - module number (in the compilation report:
                   compiling (modNum) "modName" )
-        modName - адрес имени модуля
-        err     - код ошибки
-        line    - номер строки
+        modName - address of the module name
+        err     - error code
+        line    - line number
 
-Коды ошибок:
+Error codes:
 
- 1       ASSERT(x), при x = FALSE
- 2       разыменование нулевого указателя
- 3       целочисленное деление на неположительное число
- 4       вызов процедуры через процедурную переменную с нулевым значением
- 5       ошибка охраны типа
- 6       нарушение границ массива
- 7       непредусмотренное значение выражения в операторе CASE
- 8       ошибка копирования массивов v := x, если LEN(v) < LEN(x)
- 9       CHR(x), если (x < 0) OR (x > 255)
-10       WCHR(x), если (x < 0) OR (x > 65535)
-11       неявное приведение x:INTEGER к v:BYTE, если (x < 0) OR (x > 255)
+ 1       ASSERT(x), when x = FALSE
+ 2       dereferencing a nil pointer
+ 3       integer division by a non-positive number
+ 4       call of a procedure through a procedure variable with a nil value
+ 5       type guard error
+ 6       array bounds violation
+ 7       unhandled expression value in a CASE statement
+ 8       array copy error v := x, when LEN(v) < LEN(x)
+ 9       CHR(x), when (x < 0) OR (x > 255)
+10       WCHR(x), when (x < 0) OR (x > 65535)
+11       implicit conversion of x:INTEGER to v:BYTE, when (x < 0) OR (x > 255)
 
-После возврата из обработчика, программа будет перезапущена.
+After return from the handler, the program will be restarted.
 
 ------------------------------------------------------------------------------

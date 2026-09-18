@@ -1,6 +1,6 @@
-﻿Условная компиляция
+﻿Conditional compilation
 
-синтаксис:
+syntax:
 
     $IF "(" ident {"|" ident} ")"
         <...>
@@ -10,19 +10,19 @@
         <...>
     $END
 
-    где ident:
-    - одно из возможных значений параметра <target> в командной строке
-    - пользовательский идентификатор, переданный с ключом -def при компиляции
-    - один из возможных предопределенных идентификаторов:
+    where ident is:
+    - one of the possible values of the <target> parameter on the command line
+    - a user-defined identifier passed with the -def option at compile time
+    - one of the possible predefined identifiers:
 
-        WINDOWS   - приложение Windows
-        LINUX     - приложение Linux
-        KOLIBRIOS - приложение KolibriOS
-        CPU_X86   - приложение для процессора x86 (32-бит)
-        CPU_X8664 - приложение для процессора x86_64
+        WINDOWS   - Windows application
+        LINUX     - Linux application
+        KOLIBRIOS - KolibriOS application
+        CPU_X86   - application for the x86 (32-bit) processor
+        CPU_X8664 - application for the x86_64 processor
 
 
-примеры:
+examples:
 
     $IF (win64con | win64gui | win64dll)
         OS := "WIN64";

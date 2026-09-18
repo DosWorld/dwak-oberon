@@ -1,6 +1,7 @@
 ﻿(*
     BSD 2-Clause License
 
+    Copyright (c) 2026-, DosWorld
     Copyright (c) 2020-2022, Anton Krotov
     All rights reserved.
 *)
@@ -318,9 +319,12 @@ BEGIN
         opSTC := opSTWC
     END;
 
-    cmd := IL.codes.commands.first(IL.COMMAND);
+    cmd := IL.codes.commands;
 
     WHILE cmd # NIL DO
+
+        (* This pass never revisits a command, so everything behind us is dead. *)
+        IL.freeUpTo(cmd);
 
         param1 := cmd.param1;
         param2 := cmd.param2;
@@ -361,7 +365,7 @@ BEGIN
 
         |IL.opLADR:
             param2 := param2 * szWord;
-            next := cmd.next(IL.COMMAND);
+            next := cmd.next;
             IF ((next.opcode = IL.opSAVE) OR (next.opcode = IL.opSAVEF)) & (szWord = 8) OR (next.opcode = IL.opSAVE64) THEN
                 UnOp(r1);
                 Emit(opSTD, BP * 256 + r1, param2);
@@ -435,7 +439,7 @@ BEGIN
             Emit(opRET, 0, 0)
 
         |IL.opCONST:
-            next := cmd.next(IL.COMMAND);
+            next := cmd.next;
             IF (next.opcode = IL.opPARAM) & (next.param2 = 1) THEN
                 pushc(param2);
                 cmd := next
@@ -589,7 +593,7 @@ BEGIN
 
         |IL.opADDC:
             UnOp(r1);
-            next := cmd.next(IL.COMMAND);
+            next := cmd.next;
             CASE next.opcode OF
             |IL.opLOADF:
                 Emit(opLD, r1 * 256 + r1, param2);
@@ -671,7 +675,7 @@ BEGIN
                 UnOp(r1);
                 Emit(opCMPC, r1, param2)
             END;
-            next := cmd.next(IL.COMMAND);
+            next := cmd.next;
             IF next.opcode = IL.opJZ THEN
                 Emit(ORD(BITS(jcc(opcode)) / {0}), next.param1, 0);
                 cmd := next;
@@ -1312,8 +1316,11 @@ BEGIN
 
         END;
 
-        cmd := cmd.next(IL.COMMAND)
+        cmd := cmd.next
     END;
+
+    (* The loop leaves the tail of the list behind. *)
+    IL.freeUpTo(NIL);
 
     ASSERT(R.pushed = 0);
     ASSERT(R.top = -1)

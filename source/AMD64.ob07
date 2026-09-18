@@ -1,6 +1,7 @@
 ﻿(*
     BSD 2-Clause License
 
+    Copyright (c) 2026-, DosWorld
     Copyright (c) 2018-2023, Anton Krotov
     All rights reserved.
 *)
@@ -675,7 +676,7 @@ BEGIN
 END fcmp;
 
 
-PROCEDURE translate (commands: LISTS.LIST; stroffs: INTEGER);
+PROCEDURE translate (commands: COMMAND; stroffs: INTEGER);
 VAR
     cmd, next: COMMAND;
 
@@ -687,8 +688,11 @@ VAR
 
 BEGIN
     xmm := -1;
-    cmd := commands.first(COMMAND);
+    cmd := commands;
     WHILE cmd # NIL DO
+
+        (* This pass never revisits a command, so everything behind us is dead. *)
+        IL.freeUpTo(cmd);
 
         param1 := cmd.param1;
         param2 := cmd.param2;
@@ -991,7 +995,7 @@ BEGIN
 
         |IL.opLADR:
             n := param2 * 8;
-            next := cmd.next(COMMAND);
+            next := cmd.next;
             IF (next.opcode = IL.opSAVEF) OR (next.opcode = IL.opSAVEFI) THEN
                 ASSERT(xmm >= 0);
                 movsdmr(rbp, n, xmm);
@@ -1016,7 +1020,7 @@ BEGIN
             END
 
         |IL.opGADR:
-            next := cmd.next(COMMAND);
+            next := cmd.next;
             IF (next.opcode = IL.opADDC) & ~isLong(param2 + next.param2) THEN
                 INC(param2, next.param2);
                 cmd := next
@@ -1130,7 +1134,7 @@ BEGIN
             drop;
             cc := X86.cond(opcode);
 
-            next := cmd.next(COMMAND);
+            next := cmd.next;
             IF next.opcode = IL.opJNZ THEN
                 jcc(cc, next.param1);
                 cmd := next
@@ -1536,7 +1540,7 @@ BEGIN
         |IL.opADDC:
             IF (param2 # 0) & ~isLong(param2) THEN
                 UnOp(reg1);
-                next := cmd.next(COMMAND);
+                next := cmd.next;
                 CASE next.opcode OF
                 |IL.opLOAD64:
                     movrm(reg1, reg1, param2);
@@ -1634,14 +1638,14 @@ BEGIN
             drop
 
         |IL.opMULC:
-            IF (cmd.next(COMMAND).opcode = IL.opADD) & ((param2 = 2) OR (param2 = 4) OR (param2 = 8)) THEN
+            IF (cmd.next.opcode = IL.opADD) & ((param2 = 2) OR (param2 = 4) OR (param2 = 8)) THEN
                 BinOp(reg1, reg2);
                 OutByte2(48H + 5 * (reg1 DIV 8) + 2 * (reg2 DIV 8), 8DH); (* lea reg1, [reg1 + reg2 * param2] *)
                 reg1 := reg1 MOD 8;
                 reg2 := reg2 MOD 8;
                 OutByte2(04H + reg1 * 8, reg1 + reg2 * 8 + 40H * UTILS.Log2(param2));
                 drop;
-                cmd := cmd.next(COMMAND)
+                cmd := cmd.next
             ELSE
                 UnOp(reg1);
 
@@ -2217,12 +2221,15 @@ BEGIN
             OutByte(param2)
 
         |IL.opFNAME:
-            fname := cmd(IL.FNAMECMD).fname
+            IL.GetName(param1, fname)
 
         END;
 
-        cmd := cmd.next(COMMAND)
+        cmd := cmd.next
     END;
+
+    (* The loop leaves the tail of the list behind. *)
+    IL.freeUpTo(NIL);
 
     ASSERT(R.pushed = 0);
     ASSERT(R.top = -1);

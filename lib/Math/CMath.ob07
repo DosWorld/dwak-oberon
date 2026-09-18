@@ -1,6 +1,4 @@
 ﻿(* ***********************************************
-    Модуль работы с комплексными числами.
-    Вадим Исаев, 2020
     Module for complex numbers.
     Vadim Isaev, 2020
 *************************************************** *)
@@ -21,8 +19,7 @@ VAR
   i* : complex;
   _0*: complex;
 
-(* Инициализация комплексного числа.
-   Init complex number. *)
+(* Init complex number. *)
 PROCEDURE CInit* (re : REAL; im: REAL): complex;
 VAR
   temp: complex;
@@ -35,11 +32,9 @@ BEGIN
 END CInit;
 
 
-(* Четыре основных арифметических операций.
-   Four base operations  +, -, * , / *)
+(* Four base operations  +, -, * , / *)
 
-(* Сложение
-   addition : z := z1 + z2 *)
+(* addition : z := z1 + z2 *)
 PROCEDURE CAdd* (z1, z2: complex): complex;
 BEGIN
   result.re := z1.re + z2.re;
@@ -48,8 +43,7 @@ BEGIN
   RETURN result
 END CAdd;
 
-(* Сложение с REAL.
-   addition : z := z1 + r1 *)
+(* addition : z := z1 + r1 *)
 PROCEDURE CAdd_r* (z1: complex; r1: REAL): complex;
 BEGIN
   result.re := z1.re + r1;
@@ -58,8 +52,7 @@ BEGIN
   RETURN result
 END CAdd_r;
 
-(* Сложение с INTEGER.
-   addition : z := z1 + i1 *)
+(* addition : z := z1 + i1 *)
 PROCEDURE CAdd_i* (z1: complex; i1: INTEGER): complex;
 BEGIN
   result.re := z1.re + FLT(i1);
@@ -68,7 +61,7 @@ BEGIN
   RETURN result
 END CAdd_i;
 
-(* Смена знака.
+(* Change of sign.
    substraction : z := - z1 *)
 PROCEDURE CNeg (z1 : complex): complex;
 BEGIN
@@ -78,8 +71,7 @@ BEGIN
   RETURN result
 END CNeg;
 
-(* Вычитание.
-   substraction : z := z1 - z2 *)
+(* substraction : z := z1 - z2 *)
 PROCEDURE CSub* (z1, z2 : complex): complex;
 BEGIN
   result.re := z1.re - z2.re;
@@ -88,8 +80,7 @@ BEGIN
   RETURN result
 END CSub;
 
-(* Вычитание REAL.
-   substraction : z := z1 - r1 *)
+(* substraction : z := z1 - r1 *)
 PROCEDURE CSub_r1* (z1 : complex; r1 : REAL): complex;
 BEGIN
   result.re := z1.re - r1;
@@ -98,8 +89,7 @@ BEGIN
   RETURN result
 END CSub_r1;
 
-(* Вычитание из REAL.
-   substraction : z := r1 - z1 *)
+(* substraction : z := r1 - z1 *)
 PROCEDURE CSub_r2* (r1 : REAL; z1 : complex): complex;
 BEGIN
   result.re := r1 - z1.re;
@@ -108,8 +98,7 @@ BEGIN
   RETURN result
 END CSub_r2;
 
-(* Вычитание INTEGER.
-   substraction : z := z1 - i1 *)
+(* substraction : z := z1 - i1 *)
 PROCEDURE CSub_i* (z1 : complex; i1 : INTEGER): complex;
 BEGIN
   result.re := z1.re - FLT(i1);
@@ -118,8 +107,7 @@ BEGIN
   RETURN result
 END CSub_i;
 
-(* Умножение.
-   multiplication : z := z1 * z2 *)
+(* multiplication : z := z1 * z2 *)
 PROCEDURE CMul (z1, z2 : complex): complex;
 BEGIN
   result.re := (z1.re * z2.re) - (z1.im * z2.im);
@@ -128,8 +116,7 @@ BEGIN
   RETURN result
 END CMul;
 
-(* Умножение с REAL.
-   multiplication : z := z1 * r1 *)
+(* multiplication : z := z1 * r1 *)
 PROCEDURE CMul_r (z1 : complex; r1 : REAL): complex;
 BEGIN
   result.re := z1.re * r1;
@@ -138,8 +125,7 @@ BEGIN
   RETURN result
 END CMul_r;
 
-(* Умножение с INTEGER.
-   multiplication : z := z1 * i1 *)
+(* multiplication : z := z1 * i1 *)
 PROCEDURE CMul_i (z1 : complex; i1 : INTEGER): complex;
 BEGIN
   result.re := z1.re * FLT(i1);
@@ -148,8 +134,7 @@ BEGIN
   RETURN result
 END CMul_i;
 
-(* Деление.
-   division : z := znum / zden *)
+(* division : z := znum / zden *)
 PROCEDURE CDiv (z1, z2 : complex): complex;
     (* The following algorithm is used to properly handle
       denominator overflow:
@@ -180,8 +165,7 @@ BEGIN
    RETURN result
 END CDiv;
 
-(* Деление на REAL.
-   division : z := znum / r1 *)
+(* division : z := znum / r1 *)
 PROCEDURE CDiv_r* (z1 : complex; r1 : REAL): complex;
 BEGIN
   result.re := z1.re / r1;
@@ -190,8 +174,7 @@ BEGIN
   RETURN result
 END CDiv_r;
 
-(* Деление на INTEGER.
-   division : z := znum / i1 *)
+(* division : z := znum / i1 *)
 PROCEDURE CDiv_i* (z1 : complex; i1 : INTEGER): complex;
 BEGIN
   result.re := z1.re / FLT(i1);
@@ -202,8 +185,7 @@ END CDiv_i;
 
 (* fonctions elementaires *)
 
-(* Вывод на экран.
-   out complex number *)
+(* out complex number *)
 PROCEDURE CPrint* (z: complex; width: INTEGER);
 BEGIN
   Out.Real(z.re, width);
@@ -220,8 +202,8 @@ BEGIN
   Out.Ln;
 END CPrintLn;
 
-(* Вывод на экран с фиксированным кол-вом знаков
-   после запятой (p) *)
+(* Output to the screen with a fixed number of digits
+   after the decimal point (p) *)
 PROCEDURE CPrintFix* (z: complex; width, p: INTEGER);
 BEGIN
   Out.FixReal(z.re, width, p);
@@ -238,15 +220,13 @@ BEGIN
   Out.Ln;
 END CPrintFixLn;
 
-(* Модуль числа.
-   module : r = |z| *)
+(* module : r = |z| *)
 PROCEDURE CMod* (z1 : complex): REAL;
 BEGIN
   RETURN Math.sqrt((z1.re * z1.re) + (z1.im * z1.im))
 END CMod;
 
-(* Квадрат числа.
-   square : r := z*z *)
+(* square : r := z*z *)
 PROCEDURE CSqr* (z1: complex): complex;
 BEGIN
   result.re := z1.re * z1.re - z1.im * z1.im;
@@ -255,8 +235,7 @@ BEGIN
   RETURN result
 END CSqr;
 
-(* Квадратный корень числа.
-   square root : r := sqrt(z) *)
+(* square root : r := sqrt(z) *)
 PROCEDURE CSqrt* (z1: complex): complex;
 VAR
   root, q: REAL;
@@ -283,8 +262,7 @@ BEGIN
   RETURN result
 END CSqrt;
 
-(* Экспонента.
-   exponantial : r := exp(z) *)
+(* exponantial : r := exp(z) *)
 (* exp(x + iy) = exp(x).exp(iy) = exp(x).[cos(y) + i sin(y)] *)
 PROCEDURE CExp* (z: complex): complex;
 VAR
@@ -297,8 +275,7 @@ BEGIN
   RETURN result
 END CExp;
 
-(* Натуральный логарифм.
-   natural logarithm : r := ln(z) *)
+(* natural logarithm : r := ln(z) *)
 (* ln( p exp(i0)) = ln(p) + i0 + 2kpi *)
 PROCEDURE CLn* (z: complex): complex;
 BEGIN
@@ -308,8 +285,7 @@ BEGIN
   RETURN result
 END CLn;
 
-(* Число в степени.
-   exp : z := z1^z2 *)
+(* exp : z := z1^z2 *)
 PROCEDURE CPower* (z1, z2 : complex): complex;
 VAR
   a: complex;
@@ -321,8 +297,7 @@ BEGIN
    RETURN result
 END CPower;
 
-(* Число в степени REAL.
-   multiplication : z := z1^r *)
+(* multiplication : z := z1^r *)
 PROCEDURE CPower_r* (z1: complex; r: REAL): complex;
 VAR
   a: complex;
@@ -334,8 +309,7 @@ BEGIN
   RETURN result
 END CPower_r;
 
-(* Обратное число.
-   inverse : r := 1 / z *)
+(* inverse : r := 1 / z *)
 PROCEDURE CInv* (z: complex): complex;
 VAR
   denom : REAL;
@@ -350,8 +324,7 @@ END CInv;
 
 (* direct trigonometric functions *)
 
-(* Косинус.
-   complex cosinus *)
+(* complex cosinus *)
 (* cos(x+iy) = cos(x).cos(iy) - sin(x).sin(iy) *)
 (* cos(ix) = cosh(x) et sin(ix) = i.sinh(x) *)
 PROCEDURE CCos* (z: complex): complex;
@@ -362,8 +335,7 @@ BEGIN
   RETURN result
 END CCos;
 
-(* Синус.
-   sinus complex *)
+(* sinus complex *)
 (* sin(x+iy) = sin(x).cos(iy) + cos(x).sin(iy) *)
 (* cos(ix) = cosh(x) et sin(ix) = i.sinh(x) *)
 PROCEDURE CSin (z: complex): complex;
@@ -374,8 +346,7 @@ BEGIN
   RETURN result
 END CSin;
 
-(* Тангенс.
-   tangente *)
+(* tangente *)
 PROCEDURE CTg* (z: complex): complex;
 VAR
   temp1, temp2: complex;
@@ -389,8 +360,7 @@ END CTg;
 
 (* inverse complex hyperbolic functions *)
 
-(* Гиперболический арккосинус.
-   hyberbolic arg cosinus *)
+(* hyberbolic arg cosinus *)
 (*                          _________  *)
 (* argch(z) = -/+ ln(z + i.V 1 - z.z)  *)
 PROCEDURE CArcCosh* (z : complex): complex;
@@ -400,8 +370,7 @@ BEGIN
   RETURN result
 END CArcCosh;
 
-(* Гиперболический арксинус.
-   hyperbolic arc sinus       *)
+(* hyperbolic arc sinus       *)
 (*                    ________  *)
 (* argsh(z) = ln(z + V 1 + z.z) *)
 PROCEDURE CArcSinh* (z : complex): complex;
@@ -411,8 +380,7 @@ BEGIN
   RETURN result
 END CArcSinh;
 
-(* Гиперболический арктангенс.
-   hyperbolic arc tangent *)
+(* hyperbolic arc tangent *)
 (* argth(z) = 1/2 ln((z + 1) / (1 - z)) *)
 PROCEDURE CArcTgh (z : complex): complex;
 BEGIN
@@ -423,8 +391,7 @@ END CArcTgh;
 
 (* trigonometriques inverses *)
 
-(* Арккосинус.
-   arc cosinus complex *)
+(* arc cosinus complex *)
 (* arccos(z) = -i.argch(z) *)
 PROCEDURE CArcCos* (z: complex): complex;
 BEGIN
@@ -433,8 +400,7 @@ BEGIN
   RETURN result
 END CArcCos;
 
-(* Арксинус.
-   arc sinus complex *)
+(* arc sinus complex *)
 (* arcsin(z) = -i.argsh(i.z) *)
 PROCEDURE CArcSin* (z : complex): complex;
 BEGIN
@@ -443,8 +409,7 @@ BEGIN
   RETURN result
 END CArcSin;
 
-(* Арктангенс.
-   arc tangente complex *)
+(* arc tangente complex *)
 (* arctg(z) = -i.argth(i.z) *)
 PROCEDURE CArcTg* (z : complex): complex;
 BEGIN

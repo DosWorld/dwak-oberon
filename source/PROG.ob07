@@ -1,6 +1,7 @@
 ﻿(*
     BSD 2-Clause License
 
+    Copyright (c) 2026-, DosWorld
     Copyright (c) 2018-2023, Anton Krotov
     All rights reserved.
 *)
@@ -104,7 +105,7 @@ TYPE
         _import*:    LISTS.ITEM;
         using*:      LISTS.LIST;
         enter*,
-        leave*:      LISTS.ITEM
+        leave*:      IL.COMMAND
 
     END;
 
@@ -456,7 +457,6 @@ BEGIN
 
         unit.scopes[unit.scopeLvl] := proc;
 
-        NEW(item);
         item := NewIdent();
 
         item.name.s := "";
@@ -1278,6 +1278,148 @@ BEGIN
 
     createSysUnit
 END create;
+
+
+(* Unlink and release every node of `list` together with the list header, and
+   return NIL so the caller can do `x := FreeList(x)`. Nodes go one at a time
+   because DISPOSE invalidates the pointer it is given. *)
+PROCEDURE FreeList (list: LISTS.LIST): LISTS.LIST;
+VAR
+    node: LISTS.ITEM;
+
+BEGIN
+    IF list # NIL THEN
+        node := list.first;
+
+        WHILE node # NIL DO
+            list.first := node.next;
+            DISPOSE(node);
+            node := list.first
+        END;
+
+        list.last := NIL;
+        DISPOSE(list)
+    END;
+
+    RETURN NIL
+END FreeList;
+
+
+(* Release the units and the identifier and forward-pointer lists each of them
+   owns. *)
+PROCEDURE FreeUnits (list: LISTS.LIST): LISTS.LIST;
+VAR
+    node: LISTS.ITEM;
+    unit: UNIT;
+
+BEGIN
+    IF list # NIL THEN
+        node := list.first;
+
+        WHILE node # NIL DO
+            list.first := node.next;
+            unit := node(UNIT);
+            unit.idents      := FreeList(unit.idents);
+            unit.frwPointers := FreeList(unit.frwPointers);
+            DISPOSE(unit);
+            node := list.first
+        END;
+
+        list.last := NIL;
+        DISPOSE(list)
+    END;
+
+    RETURN NIL
+END FreeUnits;
+
+
+(* Release the types and the field and parameter lists each of them owns. *)
+PROCEDURE FreeTypes (list: LISTS.LIST): LISTS.LIST;
+VAR
+    node: LISTS.ITEM;
+    t:    _TYPE;
+
+BEGIN
+    IF list # NIL THEN
+        node := list.first;
+
+        WHILE node # NIL DO
+            list.first := node.next;
+            t := node(_TYPE);
+            t.fields := FreeList(t.fields);
+            t.params := FreeList(t.params);
+            DISPOSE(t);
+            node := list.first
+        END;
+
+        list.last := NIL;
+        DISPOSE(list)
+    END;
+
+    RETURN NIL
+END FreeTypes;
+
+
+(* Release the procedures and the usage lists they own. *)
+PROCEDURE FreeProcs (list: LISTS.LIST): LISTS.LIST;
+VAR
+    node: LISTS.ITEM;
+    proc: PROC;
+
+BEGIN
+    IF list # NIL THEN
+        node := list.first;
+
+        WHILE node # NIL DO
+            list.first := node.next;
+            proc := node(PROC);
+            proc.using := FreeList(proc.using);
+            DISPOSE(proc);
+            node := list.first
+        END;
+
+        list.last := NIL;
+        DISPOSE(list)
+    END;
+
+    RETURN NIL
+END FreeProcs;
+
+
+(* Release everything the module allocated. Only valid once the whole
+   compilation is over; the module must not be used afterwards. *)
+PROCEDURE Free*;
+VAR
+    itm: C.ITEM;
+
+BEGIN
+    program.units := FreeUnits(program.units);
+    program.types := FreeTypes(program.types);
+    program.procs := FreeProcs(program.procs);
+
+    (* Identifiers that were recycled out of a closed scope are still live. *)
+    itm := C.pop(idents);
+    WHILE itm # NIL DO
+        DISPOSE(itm);
+        itm := C.pop(idents)
+    END;
+    DISPOSE(idents);
+
+    program.stTypes.tINTEGER := NIL;
+    program.stTypes.tBYTE    := NIL;
+    program.stTypes.tCHAR    := NIL;
+    program.stTypes.tSET     := NIL;
+    program.stTypes.tBOOLEAN := NIL;
+    program.stTypes.tWCHAR   := NIL;
+    program.stTypes.tREAL    := NIL;
+    program.stTypes.tSTRING  := NIL;
+    program.stTypes.tNIL     := NIL;
+    program.stTypes.tCARD32  := NIL;
+    program.stTypes.tANYREC  := NIL;
+    program.stTypes.tNONE    := NIL;
+    program.sysunit := NIL;
+    program.rtl     := NIL
+END Free;
 
 
 END PROG.

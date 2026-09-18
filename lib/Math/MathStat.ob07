@@ -1,7 +1,4 @@
 ﻿(* ********************************************
-   Дополнение к модулю Math.
-   Статистические процедуры.
-   -------------------------------------
    Additional functions to the module Math.
    Statistical functions
 *********************************************** *)
@@ -11,7 +8,7 @@ MODULE MathStat;
 IMPORT Math;
 
 
-(*Минимальное значение. Нецелое *)
+(* Minimum value. REAL *)
 PROCEDURE MinValue* (data: ARRAY OF REAL; N: INTEGER): REAL;
 VAR
     i: INTEGER;
@@ -29,7 +26,7 @@ BEGIN
 END MinValue;
 
 
-(*Минимальное значение. Целое *)
+(* Minimum value. INTEGER *)
 PROCEDURE MinIntValue* (data: ARRAY OF INTEGER; N: INTEGER): INTEGER;
 VAR
     i: INTEGER;
@@ -47,7 +44,7 @@ BEGIN
 END MinIntValue;
 
 
-(*Максимальное значение. Нецелое *)
+(* Maximum value. REAL *)
 PROCEDURE MaxValue* (data: ARRAY OF REAL; N: INTEGER): REAL;
 VAR
     i: INTEGER;
@@ -65,7 +62,7 @@ BEGIN
 END MaxValue;
 
 
-(*Максимальное значение. Целое *)
+(* Maximum value. INTEGER *)
 PROCEDURE MaxIntValue* (data: ARRAY OF INTEGER; N: INTEGER): INTEGER;
 VAR
     i: INTEGER;
@@ -83,7 +80,7 @@ BEGIN
 END MaxIntValue;
 
 
-(* Сумма значений массива *)
+(* Sum of the array values *)
 PROCEDURE Sum* (data: ARRAY OF REAL; Count: INTEGER): REAL;
 VAR
     a: REAL;
@@ -99,7 +96,7 @@ BEGIN
 END Sum;
 
 
-(* Сумма целых значений массива *)
+(* Sum of the INTEGER array values *)
 PROCEDURE SumInt* (data: ARRAY OF INTEGER; Count: INTEGER): INTEGER;
 VAR
     a: INTEGER;
@@ -115,7 +112,7 @@ BEGIN
 END SumInt;
 
 
-(* Сумма квадратов значений массива *)
+(* Sum of squares of the array values *)
 PROCEDURE SumOfSquares* (data : ARRAY OF REAL; Count: INTEGER): REAL;
 VAR
     a: REAL;
@@ -131,7 +128,7 @@ BEGIN
 END SumOfSquares;
 
 
-(* Сумма значений и сумма квадратов значений массмва *)
+(* Sum of the array values and the sum of their squares *)
 PROCEDURE SumsAndSquares* (data: ARRAY OF REAL; Count : INTEGER;
                             VAR sum, sumofsquares : REAL);
 VAR
@@ -149,7 +146,7 @@ BEGIN
 END SumsAndSquares;
 
 
-(* Средниее значений массива *)
+(* Mean of the array values *)
 PROCEDURE Mean* (data: ARRAY OF REAL; Count: INTEGER): REAL;
     RETURN Sum(data, Count) / FLT(Count)
 END Mean;
@@ -169,8 +166,8 @@ BEGIN
 END MeanAndTotalVariance;
 
 
-(* Вычисление статистической дисперсии равной сумме квадратов разницы
-   между каждым конкретным значением массива Data и средним значением *)
+(* Computes the statistical variance equal to the sum of squares of the differences
+   between each particular value of the array Data and the mean value *)
 PROCEDURE TotalVariance* (data: ARRAY OF REAL; Count: INTEGER): REAL;
 VAR
     mu, tv: REAL;
@@ -181,7 +178,7 @@ BEGIN
 END TotalVariance;
 
 
-(* Типовая дисперсия всех значений массива *)
+(* Sample variance of all the array values *)
 PROCEDURE Variance* (data: ARRAY OF REAL; Count: INTEGER): REAL;
 VAR
     a: REAL;
@@ -197,13 +194,13 @@ BEGIN
 END Variance;
 
 
-(* Стандартное среднеквадратичное отклонение *)
+(* Standard deviation *)
 PROCEDURE StdDev* (data: ARRAY OF REAL; Count: INTEGER): REAL;
     RETURN Math.sqrt(Variance(data, Count))
 END StdDev;
 
 
-(* Среднее арифметическое всех значений массива, и среднее отклонение *)
+(* Arithmetic mean of all the array values, and the standard deviation *)
 PROCEDURE MeanAndStdDev* (data: ARRAY OF REAL; Count: INTEGER;
                             VAR mean: REAL; VAR stdDev: REAL);
 VAR
@@ -219,7 +216,7 @@ BEGIN
 END MeanAndStdDev;
 
 
-(* Евклидова норма для всех значений массива *)
+(* Euclidean norm of all the array values *)
 PROCEDURE Norm* (data: ARRAY OF REAL; Count: INTEGER): REAL;
 VAR
     a: REAL;

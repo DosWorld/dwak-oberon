@@ -1,6 +1,7 @@
 ﻿(*
     BSD 2-Clause License
 
+    Copyright (c) 2026-, DosWorld
     Copyright (c) 2018-2023, 2025, Anton Krotov
     All rights reserved.
 *)
@@ -238,6 +239,8 @@ BEGIN
         OutTargetItem(TARGETS.Win32C, "Windows32 Console");
         OutTargetItem(TARGETS.Win32GUI, "Windows32 GUI");
         OutTargetItem(TARGETS.Win32DLL, "Windows32 DLL");
+        OutTargetItem(TARGETS.HXDOS, "HX-DOS console (DOS extender)");
+        OutTargetItem(TARGETS.HXDOSDLL, "HX-DOS DLL (DOS extender)");
         OutTargetItem(TARGETS.Linux32, "Linux32 Exec");
         OutTargetItem(TARGETS.Linux32SO, "Linux32 SO");
         OutTargetItem(TARGETS.KolibriOS, "KolibriOS Exec");
@@ -247,7 +250,7 @@ BEGIN
         C.Ln;
         C.StringLn("optional settings:"); C.Ln;
         C.StringLn("  -out <file name>      output"); C.Ln;
-        C.StringLn("  -stk <size>           set size of stack in Mbytes (Windows, Linux, KolibriOS)"); C.Ln;
+        C.StringLn("  -stk <size>           set size of stack in Mbytes (Windows, Linux, KolibriOS, HX-DOS)"); C.Ln;
         C.StringLn("  -nochk <'ptibcwra'>   disable runtime checking (pointers, types, indexes,");
         C.StringLn("                        BYTE, CHR, WCHR)"); C.Ln;
         C.StringLn("  -lower                allow lower case for keywords (default)"); C.Ln;

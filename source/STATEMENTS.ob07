@@ -1,6 +1,7 @@
 ﻿(*
     BSD 2-Clause License
 
+    Copyright (c) 2026-, DosWorld
     Copyright (c) 2018-2023, 2025, Anton Krotov
     All rights reserved.
 *)
@@ -730,7 +731,7 @@ BEGIN
                     NextPos(parser, pos);
                     IL.setlast(begcall);
                     PExpression(parser, e2);
-                    IL.setlast(endcall.prev(IL.COMMAND));
+                    IL.setlast(endcall.prev);
                     PARS.check(isInt(e2), pos, 66);
                     IF e2.obj = eCONST THEN
                         IL.AddCmd(IL.opINCC, ARITH.Int(e2.value) * (ORD(proc = PROG.stINC) * 2 - 1))
@@ -745,7 +746,7 @@ BEGIN
                     NextPos(parser, pos);
                     IL.setlast(begcall);
                     PExpression(parser, e2);
-                    IL.setlast(endcall.prev(IL.COMMAND));
+                    IL.setlast(endcall.prev);
                     PARS.check(isInt(e2), pos, 66);
                     IF e2.obj = eCONST THEN
                         IL.AddCmd(IL.opINCCB + ORD(proc = PROG.stDEC), ARITH.Int(e2.value))
@@ -765,7 +766,7 @@ BEGIN
             NextPos(parser, pos);
             IL.setlast(begcall);
             PExpression(parser, e2);
-            IL.setlast(endcall.prev(IL.COMMAND));
+            IL.setlast(endcall.prev);
             PARS.check(isInt(e2), pos, 66);
             IF e2.obj = eCONST THEN
                 PARS.check(ARITH.range(e2.value, 0, UTILS.target.maxSet), pos, 56);
@@ -840,7 +841,7 @@ BEGIN
                 IL.Const(e1._type.length)
             END;
 
-            IL.setlast(endcall.prev(IL.COMMAND));
+            IL.setlast(endcall.prev);
 
             IF e.obj = eCONST THEN
                 IF wchar THEN
@@ -900,15 +901,15 @@ BEGIN
                 IF e2.obj = eCONST THEN
                     IF e2._type = tREAL THEN
                         Float(parser, e2);
-                        IL.setlast(endcall.prev(IL.COMMAND));
+                        IL.setlast(endcall.prev);
                         IL.savef(FALSE)
                     ELSE
                         LoadConst(e2);
-                        IL.setlast(endcall.prev(IL.COMMAND));
+                        IL.setlast(endcall.prev);
                         IL.SysPut(e2._type.size)
                     END
                 ELSE
-                    IL.setlast(endcall.prev(IL.COMMAND));
+                    IL.setlast(endcall.prev);
                     IF e2._type = tREAL THEN
                         IL.savef(FALSE)
                     ELSIF e2._type = tBYTE THEN
@@ -923,7 +924,7 @@ BEGIN
                 IF e2.obj = eCONST THEN
                     LoadConst(e2)
                 END;
-                IL.setlast(endcall.prev(IL.COMMAND));
+                IL.setlast(endcall.prev);
                 CASE proc OF
                 |PROG.sysPUT8:  size := 1
                 |PROG.sysPUT16: size := 2
@@ -1668,7 +1669,7 @@ BEGIN
     ELSIF cconv IN {PROG._systemv, PROG.systemv} THEN
         IL.AddCmd(IL.opSYSVALIGN16, parSize + stk_par)
     END;
-    IL.setlast(endcall.prev(IL.COMMAND));
+    IL.setlast(endcall.prev);
 
     IF e.obj = eIMP THEN
         IL.CallImp(e.ident._import, callconv, fparSize)
@@ -2627,7 +2628,7 @@ BEGIN
             CheckRange(256, pos.line, errBYTE)
         END;
 
-        IL.setlast(endcall.prev(IL.COMMAND));
+        IL.setlast(endcall.prev);
 
         PARS.check(assign(parser, e1, e._type, line), pos, 91);
         IF e1.obj = ePROC THEN
@@ -3289,9 +3290,26 @@ BEGIN
 END chkreturn;
 
 
-PROCEDURE setrtl;
+PROCEDURE setrtl (target: INTEGER);
 VAR
     rtl: PROG.UNIT;
+
+
+    PROCEDURE useproc (rtl: PROG.UNIT; name: SCAN.IDSTR);
+    VAR
+        id: PROG.IDENT;
+        ident: SCAN.IDENT;
+
+    BEGIN
+        SCAN.setIdent(ident, name);
+        id := PROG.getIdent(rtl, ident, FALSE);
+
+        IF (id # NIL) & (id.proc # NIL) THEN
+            id.proc.used := TRUE
+        ELSE
+            ERRORS.WrongRTL(name)
+        END
+    END useproc;
 
 
     PROCEDURE getproc (rtl: PROG.UNIT; name: SCAN.IDSTR; idx: INTEGER);
@@ -3342,7 +3360,17 @@ BEGIN
         getproc(rtl, "_dispose",  IL._dispose);
         getproc(rtl, "_isrec",    IL._isrec);
         getproc(rtl, "_dllentry", IL._dllentry);
-        getproc(rtl, "_sofinit",  IL._sofinit)
+        getproc(rtl, "_sofinit",  IL._sofinit);
+
+        (* The DLL half of the HX-DOS heap contract. An HX-DOS EXE lends its
+           allocator to every DLL loaded into it, and a DLL asks for the two
+           off the main module by name, so the EXE has to export them. Nothing
+           in the Oberon source names them, so without this they would be
+           dropped long before the export is made. *)
+        IF target = TARGETS.HXDOS THEN
+            useproc(rtl, "_heapnew");
+            useproc(rtl, "_heapdispose")
+        END
     ELSIF CPU IN {TARGETS.cpuTHUMB, TARGETS.cpuRVM32I, TARGETS.cpuRVM64I} THEN
         getproc(rtl, "_fmul",  IL._fmul);
         getproc(rtl, "_fdiv",  IL._fdiv);
@@ -3422,7 +3450,7 @@ BEGIN
     END;
 
     IF TARGETS.RTL THEN
-        setrtl
+        setrtl(target)
     END;
 
     PROG.DelUnused(IL.DelImport);
@@ -3436,7 +3464,14 @@ BEGIN
     |TARGETS.cpuTHUMB:   THUMB.CodeGen(outname, target, options)
     |TARGETS.cpuRVM32I,
      TARGETS.cpuRVM64I:  RVMxI.CodeGen(outname, target, options)
-    END
+    END;
+
+    (* The output has been written, so nothing can still need the command
+       stream, the code lists or the symbol tables. Give them back rather than
+       letting them sit until the process dies. *)
+    X86.Free;
+    IL.Free;
+    PROG.Free
 
 END compile;
 

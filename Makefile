@@ -14,3 +14,8 @@ win32:
 	./compiler ./source/Compiler.ob07 win32con -out ./bin/Compiler32.exe -stk 2
 kos:
 	./compiler ./source/Compiler.ob07 kosexe -out ./bin/Compiler.kex -stk 2
+hxdos:
+	./compiler ./source/Compiler.ob07 hxdos -out ./hxcomp.exe -stk 2 -fa 512
+hxdosdll:
+	mkdir -p ./bin/hxdos
+	./compiler ./samples/HXDOS/Dll/DllLib.ob07 hxdosdll -out ./bin/hxdos/DLLLIB.DLL -stk 2 -fa 512

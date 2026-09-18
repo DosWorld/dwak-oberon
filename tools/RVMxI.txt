@@ -1,95 +1,95 @@
 ﻿
-    Экспериментальная 32/64-битная виртуальная машина RVMxI
+    Experimental 32/64-bit virtual machine RVMxI
 ---------------------------------------------------------------------------------------------------
 
-Использование
+Usage
 
-  Скомпилировать исполнитель/дизассемблер в .\tools\RVMxI.ob07
-  для Windows32/64 Console или Linux32/64:
+  Compile the interpreter/disassembler from .\tools\RVMxI.ob07
+  for Windows32/64 Console or Linux32/64:
 
     Compiler.exe .\tools\RVMxI.ob07 win32con -nochk a -out RVMxI.exe
     Compiler.exe .\tools\RVMxI.ob07 win64con -nochk a -out RVMxI.exe
     Compiler ./tools/RVMxI.ob07 linux32exe -nochk a -out RVMxI
     Compiler ./tools/RVMxI.ob07 linux64exe -nochk a -out RVMxI
 
-  Будет создан файл "RVMxI.exe" и/или "RVMxI".
+  The file "RVMxI.exe" and/or "RVMxI" will be created.
 
-  Компилировать программу в байт-код RVMxI:
+  Compile a program into RVMxI bytecode:
 
     Compiler.exe program.ob07 rvm32i [-ram size] [-def host_linux]
     Compiler.exe program.ob07 rvm64i [-ram size] [-def host_linux]
-      -ram size  --  установить размер оперативной памяти для программы в килобайтах 32768..262144
-                    (32..256 Мбайт), по умолчанию 32768 (32 Мбайт)
-      -def host_linux -- если байт-код будет исполняться на Linux (по умолчанию -- Windows)
+      -ram size  --  set the RAM size for the program in kilobytes, 32768..262144
+                    (32..256 MB), default 32768 (32 MB)
+      -def host_linux -- if the bytecode will be executed on Linux (default -- Windows)
 
-    Будет создан файл "program.bin".
+    The file "program.bin" will be created.
 
-  Выпонить программу:
+  Run the program:
 
-    RVMxI.exe program.bin -run <параметры>
+    RVMxI.exe program.bin -run <parameters>
 
-  Дизассемблировать программу:
+  Disassemble the program:
 
     RVMxI.exe program.bin -dis program.txt
 
-    Будет создан файл "program.txt".
+    The file "program.txt" will be created.
 ---------------------------------------------------------------------------------------------------
 
-Архитектура
+Architecture
 
-    Регистры
+    Registers
 
-      Не меньше пяти 32/64-битных регистров:
+      At least five 32/64-bit registers:
 
-        R0, R1, R2   регистры общего назначения
-        BP(R3)       указатель кадра стэка
-        SP(R4)       указатель стэка (растет вниз)
+        R0, R1, R2   general-purpose registers
+        BP(R3)       stack frame pointer
+        SP(R4)       stack pointer (grows downwards)
 
-        R5, R6...    регистры общего назначения (опционально)
+        R5, R6...    general-purpose registers (optional)
 
-      Регистра связи нет (адрес возврата передается через стэк),
-      регистр-счетчик команд (PC) -- скрытый, регистр флагов -- скрытый.
+      There is no link register (the return address is passed on the stack),
+      the program counter register (PC) is hidden, the flags register is hidden.
 
-      Нет вещественных регистров, операции с плавающей точкой (single (32-бит) или double (64-бит))
-      эмулируются.
+      There are no floating-point registers; floating-point operations (single (32-bit) or double (64-bit))
+      are emulated.
 
-    Формат кадра стэка
+    Stack frame format
 
-      Стэк:
+      Stack:
 
-        меньше <- |лок. переменные|старый BP|адрес возврата|парам1|парам2|...|парамN| -> больше
+        lower <- |local variables|old BP|return address|param1|param2|...|paramN| -> higher
 
-          (* 32 бита *)
-          адрес(парам1) = BP + 8
-          адрес(парам2) = BP + 12
+          (* 32 bits *)
+          address(param1) = BP + 8
+          address(param2) = BP + 12
           ...
 
-          (* 64 бита *)
-          адрес(парам1) = BP + 16
-          адрес(парам2) = BP + 24
+          (* 64 bits *)
+          address(param1) = BP + 16
+          address(param2) = BP + 24
           ...
 
-      Параметры передаются через стэк справа налево (как cdecl), результат передается через R0,
-      вызывающая процедура очищает стэк (как cdecl).
+      Parameters are passed on the stack from right to left (as in cdecl); the result is returned in R0,
+      the calling procedure cleans up the stack (as in cdecl).
 
 ---------------------------------------------------------------------------------------------------
 
-Формат "исполняемого" файла
+"Executable" file format
 
   RECORD
 
-      Text:           ARRAY i OF RECORD opcode, param1, param2: INTEGER END; (* байт-код *)
-      Types:          ARRAY t OF INTEGER; (* таблица типов-записей *)
-      Strings:        ARRAY s OF BYTE;    (* строковые литералы *)
-      offTypes:       INTEGER;            (* смещение таблицы типов-записей от начала файла (в байтах) *)
-      offStrings:     INTEGER;            (* смещение строковых литералов от начала файла (в байтах) *)
-      GlobalSize:     INTEGER;            (* размер глобальных переменных (в словах; слово = 4 байта) *)
-      HeapStackSize:  INTEGER;            (* размер области кучи/стэка (в словах; слово = 4 байта) *)
-      Reserved:       ARRAY 8 OF INTEGER  (* зарезервировано *)
+      Text:           ARRAY i OF RECORD opcode, param1, param2: INTEGER END; (* bytecode *)
+      Types:          ARRAY t OF INTEGER; (* record type table *)
+      Strings:        ARRAY s OF BYTE;    (* string literals *)
+      offTypes:       INTEGER;            (* offset of the record type table from the start of the file (in bytes) *)
+      offStrings:     INTEGER;            (* offset of the string literals from the start of the file (in bytes) *)
+      GlobalSize:     INTEGER;            (* size of the global variables (in words; a word = 4 bytes) *)
+      HeapStackSize:  INTEGER;            (* size of the heap/stack area (in words; a word = 4 bytes) *)
+      Reserved:       ARRAY 8 OF INTEGER  (* reserved *)
 
   END
 
-  Где:
+  Where:
 
       INTEGER = INT32/INT64
       i = offTypes DIV (3 * sizeof(INTEGER));
@@ -97,16 +97,16 @@
       s = FILE_SIZE - offStrings - 12 * sizeof(INTEGER)
 ---------------------------------------------------------------------------------------------------
 
-Система команд
+Instruction set
 
-    мнемоника              опкод   парам1   парам2        действие
+    mnemonic                 opcode   param1   param2     action
 
-    STOP                     0       0        0           остановить программу
-    RET                      1       0        0           возврат из процедуры (pop PC)
+    STOP                     0       0        0           stop the program
+    RET                      1       0        0           return from a procedure (pop PC)
     ENTER imm                2      imm       0           push BP; BP := SP; WHILE imm > 0 DO push 0; DEC(imm) END
     NEG Rn                   3       n        0           Rn := -Rn
     NOT Rn                   4       n        0           Rn := ORD(-BITS(Rn))
-    NOP                      5       0        0           нет операции
+    NOP                      5       0        0           no operation
     XCHG Rn, Rm              6       n        m           temp := Rn; Rn := Rm; Rm := temp
     LDB Rn, [Rm + imm]       7   m*256 + n   imm          Rn := UInt8Ptr(Rm + imm)^
     LDH Rn, [Rm + imm]       8   m*256 + n   imm          Rn := UInt16Ptr(Rm + imm)^
@@ -117,7 +117,7 @@
 **  PUSH Rn                 10       n        0           DEC(SP, 8); UInt64Ptr(SP)^ := Rn
 **  PUSH imm                11      imm       0           DEC(SP, 8); UInt64Ptr(SP)^ := imm
 **  POP Rn                  12       n        0           Rn := UInt64Ptr(SP)^; INC(SP, 8)
-    L#hex:                  13      hex       0           метка:
+    L#hex:                  13      hex       0           label:
     LEA Rn, TYPES + imm     14    n + 000H   imm          Rn := imm + address(TYPES)
     LEA Rn, STRINGS + imm   14    n + 100H   imm          Rn := imm + address(STRINGS)
     LEA Rn, GLOBAL + imm    14    n + 200H   imm          Rn := imm + address(GLOBAL)
@@ -167,42 +167,42 @@
     ROR Rn, Rm              58       n        m           Rn := ROR(Rn, Rm)
     ROR Rn, imm             59       n       imm          Rn := ROR(Rn, imm)
 
-    CMP Rn, Rm              64       n        m           сравнить Rn и Rm
-    CMP Rn, imm             65       n       imm          сравнить Rn и imm
+    CMP Rn, Rm              64       n        m           compare Rn and Rm
+    CMP Rn, imm             65       n       imm          compare Rn and imm
     BIT Rn, Rm              66       n        m           Rn := ORD({Rm})
-    SYSCALL Rn              67       n        0           системный вызов; Rn содержит адрес параметров
-    JBT L#hex               68      hex       0           перейти на метку L#hex, если "ниже"
+    SYSCALL Rn              67       n        0           system call; Rn contains the address of the parameters
+    JBT L#hex               68      hex       0           jump to label L#hex if "below"
     ADD Rn, Rm, imm         69   m*256 + n   imm          Rn := Rm + imm
-    JEQ L#hex               70      hex       0           перейти на метку L#hex, если "равно"
-    JNE L#hex               71      hex       0           перейти на метку L#hex, если "не равно"
-    JLT L#hex               72      hex       0           перейти на метку L#hex, если "меньше"
-    JGE L#hex               73      hex       0           перейти на метку L#hex, если "не меньше"
-    JGT L#hex               74      hex       0           перейти на метку L#hex, если "больше"
-    JLE L#hex               75      hex       0           перейти на метку L#hex, если "не больше"
-    SEQ Rn                  76       n        0           если "равно": Rn := 1, иначе Rn := 0
-    SNE Rn                  77       n        0           если "не равно": Rn := 1, иначе Rn := 0
-    SLT Rn                  78       n        0           если "меньше": Rn := 1, иначе Rn := 0
-    SGE Rn                  79       n        0           если "не меньше": Rn := 1, иначе Rn := 0
-    SGT Rn                  80       n        0           если "больше": Rn := 1, иначе Rn := 0
-    SLE Rn                  81       n        0           если "не больше": Rn := 1, иначе Rn := 0
+    JEQ L#hex               70      hex       0           jump to label L#hex if "equal"
+    JNE L#hex               71      hex       0           jump to label L#hex if "not equal"
+    JLT L#hex               72      hex       0           jump to label L#hex if "less"
+    JGE L#hex               73      hex       0           jump to label L#hex if "not less"
+    JGT L#hex               74      hex       0           jump to label L#hex if "greater"
+    JLE L#hex               75      hex       0           jump to label L#hex if "not greater"
+    SEQ Rn                  76       n        0           if "equal": Rn := 1, else Rn := 0
+    SNE Rn                  77       n        0           if "not equal": Rn := 1, else Rn := 0
+    SLT Rn                  78       n        0           if "less": Rn := 1, else Rn := 0
+    SGE Rn                  79       n        0           if "not less": Rn := 1, else Rn := 0
+    SGT Rn                  80       n        0           if "greater": Rn := 1, else Rn := 0
+    SLE Rn                  81       n        0           if "not greater": Rn := 1, else Rn := 0
 
-Команда CMP сохраняет результат сравнения в скрытом регистре, этот результат используется
-в командах перехода по условию (JEQ, JNE, JLT, JGE, JGT, JLE, JBT) а также в командах
-установки регистра по условию (SEQ, SNE, SLT, SGE, SGT, SLE).
+The CMP instruction stores the result of the comparison in a hidden register; this result is used
+in the conditional jump instructions (JEQ, JNE, JLT, JGE, JGT, JLE, JBT) and also in the
+conditional register-set instructions (SEQ, SNE, SLT, SGE, SGT, SLE).
 
-*  Команда для 32-битной виртуальной машины
-** Команда для 64-битной виртуальной машины
+*  Instruction for the 32-bit virtual machine
+** Instruction for the 64-bit virtual machine
 
 ---------------------------------------------------------------------------------------------------
 
-Общая структура программы
+Overall program structure
 
-  CODE:   (* машинный код *)
-  LEA     SP, STACK + 0x00000000 (* точка входа; инициализация регистра SP *)
+  CODE:   (* machine code *)
+  LEA     SP, STACK + 0x00000000 (* entry point; initialization of the SP register *)
   ...
-  STOP    (* конец программы *)
+  STOP    (* end of the program *)
 
-  TYPES:  (* таблица типов-записей *)
+  TYPES:  (* record type table *)
   WORD 0x00000000, 0x00000000, 0x00000000, 0x00000000
   WORD 0x00000002, 0x00000002, 0x00000002, 0x00000002
   WORD 0x00000000, 0x00000006, 0x00000000, 0x00000000
@@ -228,7 +228,7 @@
   WORD 0x0000000C, 0x00000000, 0x00000000, 0x00000000
   WORD 0x00000006, 0x0000000C
 
-  STRINGS:  (* строковые литералы *)
+  STRINGS:  (* string literals *)
   BYTE 0x46, 0x50, 0x55, 0x00, 0x54, 0x72, 0x61, 0x70
   BYTE 0x00, 0x0D, 0x0A, 0x00, 0x61, 0x73, 0x73, 0x65
   BYTE 0x72, 0x74, 0x69, 0x6F, 0x6E, 0x20, 0x66, 0x61
@@ -261,10 +261,10 @@
   BYTE 0x4C, 0x00, 0x54, 0x65, 0x73, 0x74, 0x00, 0x00
 
   GLOBAL:
-  WORDS 0x00000004 (* размер глобальных переменных в словах (слово = 4 или 8 байт) *)
+  WORDS 0x00000004 (* size of the global variables in words (a word = 4 or 8 bytes) *)
 
   HEAP:
-  WORDS 0x007FFFBF (* размер области кучи/стэка в словах (слово = 4 или 8 байт) *)
+  WORDS 0x007FFFBF (* size of the heap/stack area in words (a word = 4 or 8 bytes) *)
   STACK:
-  WORDS 8 (* зарезервировано *)
+  WORDS 8 (* reserved *)
 ---------------------------------------------------------------------------------------------------

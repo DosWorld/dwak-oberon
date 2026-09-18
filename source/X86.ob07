@@ -1,13 +1,14 @@
 ﻿(*
     BSD 2-Clause License
 
+    Copyright (c) 2026-, DosWorld
     Copyright (c) 2018-2023, Anton Krotov
     All rights reserved.
 *)
 
 MODULE X86;
 
-IMPORT IL, REG, UTILS, LISTS, BIN, PE32, KOS, MSCOFF, ELF, PROG,
+IMPORT SYSTEM, IL, REG, UTILS, LISTS, BIN, PE32, KOS, MSCOFF, ELF, PROG, SCAN,
        CHL := CHUNKLISTS, PATHS, TARGETS, ERRORS;
 
 
@@ -29,59 +30,81 @@ CONST
     je = 84H; jne = 85H; jl = 8CH; jge = 8DH; jle = 8EH; jg = 8FH; jb = 82H; jnb = 83H;
 
 
-    CODECHUNK = 8;
+    (* Bytes of code one node collects. OutByte fills the newest node until it
+       holds CODECHUNK bytes and only then makes another, so this is the
+       granularity of the code list and of nothing else: the bytes are emitted
+       in list order whatever the nodes are, and the image is the same either
+       way. A larger node means fewer of them for the writer to walk. *)
+    CODECHUNK = 64;
 
     FPR_ERR = 41;
+
+    (* What a node of the list stands for. The list holds one kind of record
+       with a kind field rather than a record type per kind, so a walk tells the
+       nodes apart by reading that field: the type tests it used to make cost a
+       call into the runtime for every node, and for OutByte every byte. *)
+    tCODE  = 0;
+    tLABEL = 1;
+    tJMP   = 2;
+    tJCC   = 3;
+    tCALL  = 4;
+    tRELOC = 5;
+
+    (* Nodes per chunk, and how many chunks the arena can hold: a self-host
+       makes on the order of a hundred thousand nodes. See NODEBODY. *)
+    SLOTS = 1024;
+    MAXCHUNKS = 4096;
 
 
 TYPE
 
     COMMAND = IL.COMMAND;
 
+    (* One record type for every node of the list, told apart by its kind, and
+       one pointer to it. The list used to hold a type per node kind - a code
+       node, a label, a jump, a call, a relocation - and a walk had to ask each
+       node what it was. Every such question is a guarded test, and a guarded
+       test in this compiler is a call into the runtime that reads the tag in
+       front of the record; OutByte asks on every byte it emits and the fixup
+       walks ask once per node per pass, which is where the time was going.
 
-    ANYCODE = POINTER TO RECORD (LISTS.ITEM)
+       The kinds share the fields they need rather than each having its own
+       layout. A node of any kind is carved out of a chunk (see NODEBODY and
+       NewNode) and the arena hands back its index, so the list is a vector of
+       nodes and a walk is an index running from zero, with no links to follow
+       and no casts to make.
 
-        offset: INTEGER
+       The fixed part of a node is what the arena needs to carve it and what
+       InsertNode needs to move it; the code bytes are the tail. *)
+    NODEBODY = RECORD
 
-    END;
-
-    CODE = POINTER TO RECORD (ANYCODE)
-
-        code:    ARRAY CODECHUNK OF BYTE;
-        length:  INTEGER
-
-    END;
-
-    LABEL = POINTER TO RECORD (ANYCODE)
-
-        label: INTEGER
-
-    END;
-
-    JUMP = POINTER TO RECORD (ANYCODE)
-
-        label, diff: INTEGER;
-        short: BOOLEAN
-
-    END;
-
-    JMP = POINTER TO RECORD (JUMP)
-
-    END;
-
-    JCC = POINTER TO RECORD (JUMP)
-
-        jmp: INTEGER
+        kind:   INTEGER;    (* tCODE ... tRELOC *)
+        offset: INTEGER;    (* where the node begins in the section *)
+        label:  INTEGER;    (* tLABEL: the label's value; tJMP/tJCC/tCALL: the label aimed at *)
+        diff:   INTEGER;    (* tJMP/tJCC/tCALL: the signed distance to that label *)
+        short:  BOOLEAN;    (* tJMP/tJCC/tCALL: whether the short form is in use *)
+        jmp:    INTEGER;    (* tJCC: which condition *)
+        op:     INTEGER;    (* tRELOC: which relocation *)
+        value:  INTEGER;    (* tRELOC: the value to relocate *)
+        len:    INTEGER;    (* tCODE: how many bytes of code are in use *)
+        code:   ARRAY CODECHUNK OF BYTE
 
     END;
 
-    CALL = POINTER TO RECORD (JUMP)
+    NODE = POINTER TO NODEBODY;
 
-    END;
+    (* Every node used to be a block of its own on the heap, and a self-host
+       makes hundreds of thousands of them. They are carved out of chunks
+       instead, the way IL already carves its commands: a chunk is a single
+       block as far as the heap is concerned and holds SLOTS nodes, so the
+       allocator has far fewer blocks to walk past and far fewer headers to
+       write - which is where the cost was.
 
-    RELOC = POINTER TO RECORD (ANYCODE)
+       The chunks are held in one array and a node is named by its index in it,
+       so the list walks by counting and no node needs a link or a tag. *)
+    CHUNK = POINTER TO RECORD
 
-        op, value: INTEGER
+        node: ARRAY SLOTS OF NODEBODY
 
     END;
 
@@ -92,34 +115,223 @@ VAR
 
     program: BIN.PROGRAM;
 
-    CodeList: LISTS.LIST;
-
     tcount, LocVarSize, mainLocVarSize: INTEGER;
 
     FR: ARRAY 1000 OF INTEGER;
 
     fname: PATHS.PATH;
 
-    FltConstLabel, mainFltConstLabel: LABEL;
+    (* The place a floating point constant is emitted at, and the one the main
+       body's constants are emitted at. A constant is not emitted where it is
+       written but at the head of the procedure, whose stack frame the constant
+       is read from, so its push goes at FltConstLabel and the pushes of a
+       procedure follow one another from there: fltIns counts them. The two are
+       node indices, and -1 stands for the head of a main body that has not
+       begun; mainFltConstLabel, mainLocVarSize and mainFltIns are what this
+       pair is saved in while a procedure body is being generated, since the
+       procedures of Oberon-07 do not nest. *)
+    FltConstLabel, mainFltConstLabel: INTEGER;
+    fltIns, mainFltIns: INTEGER;
+
+    chunks: ARRAY MAXCHUNKS OF CHUNK;   (* the chunks handed out, in order *)
+    nchunks: INTEGER;                   (* how many of them there are *)
+    ncount:  INTEGER;                   (* how many nodes the list holds *)
+    last:    NODE;                      (* the newest node, for OutByte *)
+
+
+(* Where a node is. The chunks are uniform, so its index alone says it: the
+   chunk is the index divided by the slots in one, the slot the remainder. *)
+PROCEDURE NodeAddr (i: INTEGER): INTEGER;
+BEGIN
+    RETURN SYSTEM.ADR(chunks[i DIV SLOTS].node[i MOD SLOTS])
+END NodeAddr;
+
+
+PROCEDURE NodeAt (i: INTEGER): NODE;
+VAR
+    adr: INTEGER;
+
+BEGIN
+    adr := NodeAddr(i);
+
+    RETURN SYSTEM.VAL(NODE, adr)
+END NodeAt;
+
+
+(* How many of a chunk's slots hold a node. Every chunk but the last is full. *)
+PROCEDURE Used (i: INTEGER): INTEGER;
+VAR
+    res: INTEGER;
+
+BEGIN
+    IF i = nchunks - 1 THEN
+        res := ncount - i * SLOTS
+    ELSE
+        res := SLOTS
+    END;
+
+    RETURN res
+END Used;
+
+
+(* Make room for one more node at the end of the list. *)
+PROCEDURE Grow;
+BEGIN
+    IF (nchunks = 0) OR (Used(nchunks - 1) = SLOTS) THEN
+        ASSERT(nchunks < MAXCHUNKS);
+        NEW(chunks[nchunks]);
+        INC(nchunks)
+    END
+END Grow;
+
+
+(* A node of the given kind with nothing else in it. The kinds share one record,
+   so the fields another kind uses have to be cleared here. *)
+PROCEDURE InitNode (n: NODE; kind: INTEGER);
+BEGIN
+    n.kind   := kind;
+    n.offset := 0;
+    n.label  := 0;
+    n.diff   := 0;
+    n.short  := FALSE;
+    n.jmp    := 0;
+    n.op     := 0;
+    n.value  := 0;
+    n.len    := 0
+END InitNode;
+
+
+PROCEDURE CopyNode (src, dst: INTEGER);
+BEGIN
+    SYSTEM.MOVE(NodeAddr(src), NodeAddr(dst), SYSTEM.SIZE(NODEBODY))
+END CopyNode;
+
+
+(* A fresh node of the given kind, at the end of the list. *)
+PROCEDURE NewNode (kind: INTEGER): NODE;
+VAR
+    n: NODE;
+
+BEGIN
+    Grow;
+    n := NodeAt(ncount);
+    InitNode(n, kind);
+    INC(ncount);
+    last := n;
+
+    RETURN n
+END NewNode;
+
+
+(* Open a place at the given index by moving the nodes from there to the end up
+   by one slot. The list gains a node, which the caller fills in.
+
+   One chunk at a time, from the top down. The nodes of a chunk are contiguous
+   and a chunk above the one being shifted has already been shifted, so a full
+   chunk simply hands its last node to the base of the chunk above - which the
+   pass has already emptied. The chunks are not contiguous with one another, so
+   every index has to be counted from the base of its own chunk: lo and hi are
+   chunk-local here and only b, the base, is absolute.
+
+   The nodes inside a chunk go one at a time and from the top down. Every one of
+   them lands above where it was, and SYSTEM.MOVE copies towards the higher
+   address, so a single move of the whole run would read what it had just
+   written and smear each node over the next. *)
+PROCEDURE ShiftUp (at: INTEGER);
+VAR
+    i, b, lo, hi, k: INTEGER;
+
+BEGIN
+    Grow;   (* room for the node the shift pushes out at the end *)
+
+    i := (ncount - 1) DIV SLOTS;
+    b := i * SLOTS;
+    hi := Used(i);
+
+    WHILE (i >= 0) & (b + hi > at) DO
+        lo := at - b;
+        IF lo < 0 THEN lo := 0 END;
+
+        IF hi = SLOTS THEN
+            CopyNode(b + hi - 1, b + hi);
+            DEC(hi)
+        END;
+
+        k := hi;
+        WHILE k > lo DO
+            DEC(k);
+            CopyNode(b + k, b + k + 1)
+        END;
+
+        DEC(i);
+        b  := i * SLOTS;
+        hi := Used(i)   (* i is -1 on the last turn, when no chunk is read *)
+    END
+END ShiftUp;
+
+
+(* A fresh node of the given kind at the given index, the nodes from there on
+   moving up to make room for it. *)
+PROCEDURE InsertNode (at, kind: INTEGER): NODE;
+VAR
+    n: NODE;
+
+BEGIN
+    ShiftUp(at);
+    n := NodeAt(at);
+    InitNode(n, kind);
+    INC(ncount);
+    last := NodeAt(ncount - 1);
+
+    RETURN n
+END InsertNode;
+
+
+(* Give the whole arena back and start an empty list. *)
+PROCEDURE Reset;
+VAR
+    i: INTEGER;
+
+BEGIN
+    i := 0;
+    WHILE i < nchunks DO
+        DISPOSE(chunks[i]);
+        chunks[i] := NIL;
+        INC(i)
+    END;
+
+    nchunks := 0;
+    ncount  := 0;
+    last    := NIL;
+    FltConstLabel := -1;
+    mainFltConstLabel := -1;
+    fltIns := 0;
+    mainFltIns := 0
+END Reset;
+
+
+(* Nothing of the list survives a call, so this belongs at the end of a code
+   generation and nowhere else. *)
+PROCEDURE Free*;
+BEGIN
+    Reset
+END Free;
 
 
 PROCEDURE OutByte* (n: BYTE);
 VAR
-    c: CODE;
-    last: ANYCODE;
+    c: NODE;
 
 BEGIN
-    last := CodeList.last(ANYCODE);
+    c := last;   (* the node the bytes are being collected in, if there is one *)
 
-    IF (last IS CODE) & (last(CODE).length < CODECHUNK) THEN
-        c := last(CODE);
-        c.code[c.length] := n;
-        INC(c.length)
+    IF (c # NIL) & (c.kind = tCODE) & (c.len < CODECHUNK) THEN
+        c.code[c.len] := n;
+        INC(c.len)
     ELSE
-        NEW(c);
+        c := NewNode(tCODE);
         c.code[0] := n;
-        c.length  := 1;
-        LISTS.push(CodeList, c)
+        c.len := 1
     END
 
 END OutByte;
@@ -391,84 +603,84 @@ END inv0;
 
 PROCEDURE Reloc* (op, value: INTEGER);
 VAR
-    reloc: RELOC;
+    r: NODE;
 
 BEGIN
-    NEW(reloc);
-    reloc.op := op;
-    reloc.value := value;
-    LISTS.push(CodeList, reloc)
+    r := NewNode(tRELOC);
+    r.op    := op;
+    r.value := value
 END Reloc;
 
 
-PROCEDURE PushFlt (label: LABEL; value: REAL);
+(* The pushes of one floating point constant, at the head of the procedure the
+   constant belongs to. The two halves of the value go in front of the pushes
+   already made at that place, so the count of them says where this one goes. *)
+PROCEDURE PushFlt (at: INTEGER; value: REAL);
 VAR
     a, b, n: INTEGER;
 
 
-    PROCEDURE pushImm (label: LABEL; value: INTEGER);
+    PROCEDURE pushImm (at, value: INTEGER);
     VAR
-        c: CODE;
+        c: NODE;
         i: INTEGER;
 
     BEGIN
-        NEW(c);
+        c := InsertNode(at + fltIns, tCODE);
+        INC(fltIns);
         IF isByte(value) THEN
             c.code[0] := 6AH;
             c.code[1] := value MOD 256;
-            c.length := 2
+            c.len := 2
         ELSE
             c.code[0] := 68H;
             FOR i := 1 TO 4 DO
                 c.code[i] := UTILS.Byte(value, i - 1)
             END;
-            c.length := 5
-        END;
-        LISTS.insertL(CodeList, label, c)
+            c.len := 5
+        END
     END pushImm;
 
 
 BEGIN
     n := UTILS.splitf(value, a, b);
-    pushImm(label, b);
-    pushImm(label, a)
+    pushImm(at, b);
+    pushImm(at, a)
 END PushFlt;
 
 
 PROCEDURE jcc* (cc, label: INTEGER);
 VAR
-    j: JCC;
+    j: NODE;
 
 BEGIN
-    NEW(j);
+    j := NewNode(tJCC);
     j.label := label;
-    j.jmp   := cc;
-    j.short := FALSE;
-    LISTS.push(CodeList, j)
+    j.jmp   := cc
 END jcc;
 
 
 PROCEDURE jmp* (label: INTEGER);
 VAR
-    j: JMP;
+    j: NODE;
 
 BEGIN
-    NEW(j);
-    j.label := label;
-    j.short := FALSE;
-    LISTS.push(CodeList, j)
+    j := NewNode(tJMP);
+    j.label := label
 END jmp;
 
 
+(* short is set here and not in InitNode: a call is always the long form, and
+   the pass that shortens a jump to a byte's reach tests the flag to decide
+   whether there is anything to shorten. *)
 PROCEDURE call* (label: INTEGER);
 VAR
-    c: CALL;
+    c: NODE;
 
 BEGIN
-    NEW(c);
+    c := NewNode(tCALL);
     c.label := label;
-    c.short := TRUE;
-    LISTS.push(CodeList, c)
+    c.short := TRUE
 END call;
 
 
@@ -509,21 +721,27 @@ END CallRTL;
 
 PROCEDURE SetLabel* (label: INTEGER);
 VAR
-    L: LABEL;
+    L: NODE;
 
 BEGIN
-    NEW(L);
-    L.label := label;
-    LISTS.push(CodeList, L)
+    L := NewNode(tLABEL);
+    L.label := label
 END SetLabel;
 
 
+(* Turn the list into the bytes of a section.
+
+   The jumps have to be sized before they can be written, and a jump that was
+   long may turn out to reach its label with a byte once the jumps before it
+   have shortened, so the offsets are measured, the jumps are shortened where
+   they now reach, and the two are repeated until a pass shortens nothing.
+   Only then is anything written out. *)
 PROCEDURE fixup*;
 VAR
-    code:      ANYCODE;
-    count, i:  INTEGER;
-    shorted:   BOOLEAN;
-    jump:      JUMP;
+    code:     NODE;
+    i, j:     INTEGER;
+    count:    INTEGER;
+    shorted:  BOOLEAN;
 
 BEGIN
 
@@ -531,53 +749,57 @@ BEGIN
 
         shorted := FALSE;
         count := 0;
+        i := 0;
 
-        code := CodeList.first(ANYCODE);
-        WHILE code # NIL DO
+        WHILE i < ncount DO
+            code := NodeAt(i);
             code.offset := count;
 
-            CASE code OF
-            |CODE:   INC(count, code.length)
-            |LABEL:  BIN.SetLabel(program, code.label, count)
-            |JMP:    IF code.short THEN INC(count, 2) ELSE INC(count, 5) END; code.offset := count
-            |JCC:    IF code.short THEN INC(count, 2) ELSE INC(count, 6) END; code.offset := count
-            |CALL:   INC(count, 5); code.offset := count
-            |RELOC:  INC(count, 4)
+            CASE code.kind OF
+            |tCODE:  INC(count, code.len)
+            |tLABEL: BIN.SetLabel(program, code.label, count)
+            |tJMP:   IF code.short THEN INC(count, 2) ELSE INC(count, 5) END; code.offset := count
+            |tJCC:   IF code.short THEN INC(count, 2) ELSE INC(count, 6) END; code.offset := count
+            |tCALL:  INC(count, 5); code.offset := count
+            |tRELOC: INC(count, 4)
             END;
 
-            code := code.next(ANYCODE)
+            INC(i)
         END;
 
-        code := CodeList.first(ANYCODE);
-        WHILE code # NIL DO
+        i := 0;
+        WHILE i < ncount DO
+            code := NodeAt(i);
 
-            IF code IS JUMP THEN
-                jump := code(JUMP);
-                jump.diff := BIN.GetLabel(program, jump.label) - code.offset;
-                IF ~jump.short & isByte(jump.diff) THEN
-                    jump.short := TRUE;
+            IF code.kind IN {tJMP, tJCC, tCALL} THEN
+                code.diff := BIN.GetLabel(program, code.label) - code.offset;
+                IF ~code.short & isByte(code.diff) THEN
+                    code.short := TRUE;
                     shorted := TRUE
                 END
             END;
 
-            code := code.next(ANYCODE)
+            INC(i)
         END
 
     UNTIL ~shorted;
 
-    code := CodeList.first(ANYCODE);
-    WHILE code # NIL DO
+    i := 0;
+    WHILE i < ncount DO
+        code := NodeAt(i);
 
-        CASE code OF
+        CASE code.kind OF
 
-        |CODE:
-                FOR i := 0 TO code.length - 1 DO
-                    BIN.PutCode(program, code.code[i])
+        |tCODE:
+                j := 0;
+                WHILE j < code.len DO
+                    BIN.PutCode(program, code.code[j]);
+                    INC(j)
                 END
 
-        |LABEL:
+        |tLABEL:
 
-        |JMP:
+        |tJMP:
                 IF code.short THEN
                     BIN.PutCode(program, 0EBH);
                     BIN.PutCode(program, code.diff MOD 256)
@@ -586,7 +808,7 @@ BEGIN
                     BIN.PutCode32LE(program, code.diff)
                 END
 
-        |JCC:
+        |tJCC:
                 IF code.short THEN
                     BIN.PutCode(program, code.jmp - 16);
                     BIN.PutCode(program, code.diff MOD 256)
@@ -596,17 +818,17 @@ BEGIN
                     BIN.PutCode32LE(program, code.diff)
                 END
 
-        |CALL:
+        |tCALL:
                 BIN.PutCode(program, 0E8H);
                 BIN.PutCode32LE(program, code.diff)
 
-        |RELOC:
+        |tRELOC:
                 BIN.PutReloc(program, code.op);
                 BIN.PutCode32LE(program, code.value)
 
         END;
 
-        code := code.next(ANYCODE)
+        INC(i)
     END
 
 END fixup;
@@ -767,7 +989,8 @@ BEGIN
     PushFlt(FltConstLabel, value);
     INC(LocVarSize, 8);
     IF FltConstLabel = mainFltConstLabel THEN
-        mainLocVarSize := LocVarSize
+        mainLocVarSize := LocVarSize;
+        mainFltIns := fltIns
     END;
     OutByte2(0DDH, 045H + long(-LocVarSize)); (* fld qword[ebp - LocVarSize] *)
     OutIntByte(-LocVarSize)
@@ -787,11 +1010,14 @@ VAR
     float: REAL;
 
 BEGIN
-    cmd := IL.codes.commands.first(COMMAND);
+    cmd := IL.codes.commands;
 
     fr := -1;
 
     WHILE cmd # NIL DO
+
+        (* This pass never revisits a command, so everything behind us is dead. *)
+        IL.freeUpTo(cmd);
 
         param1 := cmd.param1;
         param2 := cmd.param2;
@@ -912,7 +1138,8 @@ BEGIN
                 END
             END;
             SetLabel(NewLabel());
-            FltConstLabel := CodeList.last(LABEL);
+            FltConstLabel := ncount;
+            fltIns := 0;
             LocVarSize := param2 * 4
 
         |IL.opLEAVE, IL.opLEAVER, IL.opLEAVEF:
@@ -944,6 +1171,7 @@ BEGIN
                 ret
             END;
             FltConstLabel := mainFltConstLabel;
+            fltIns := mainFltIns;
             LocVarSize := mainLocVarSize
 
         |IL.opPUSHC:
@@ -980,7 +1208,7 @@ BEGIN
         |IL.opNOP, IL.opAND, IL.opOR:
 
         |IL.opGADR:
-            next := cmd.next(COMMAND);
+            next := cmd.next;
             IF next.opcode = IL.opADDC THEN
                 INC(param2, next.param2);
                 cmd := next
@@ -994,7 +1222,7 @@ BEGIN
             END
 
         |IL.opLADR:
-            next := cmd.next(COMMAND);
+            next := cmd.next;
             n := param2 * 4;
             IF next.opcode = IL.opADDC THEN
                 INC(n, next.param2);
@@ -1105,7 +1333,7 @@ BEGIN
         |IL.opADDC:
             IF param2 # 0 THEN
                 UnOp(reg1);
-                next := cmd.next(COMMAND);
+                next := cmd.next;
                 CASE next.opcode OF
                 |IL.opLOAD32:
                     movrm(reg1, reg1, param2);
@@ -1150,11 +1378,11 @@ BEGIN
             END
 
         |IL.opMULC:
-            IF (cmd.next(COMMAND).opcode = IL.opADD) & ((param2 = 2) OR (param2 = 4) OR (param2 = 8)) THEN
+            IF (cmd.next.opcode = IL.opADD) & ((param2 = 2) OR (param2 = 4) OR (param2 = 8)) THEN
                 BinOp(reg1, reg2);
                 OutByte3(8DH, 04H + reg1 * 8, reg1 + reg2 * 8 + 40H * UTILS.Log2(param2)); (* lea reg1, [reg1 + reg2 * param2] *)
                 drop;
-                cmd := cmd.next(COMMAND)
+                cmd := cmd.next
             ELSE
                 UnOp(reg1);
 
@@ -1299,7 +1527,7 @@ BEGIN
 
             drop;
             cc := cond(opcode);
-            next := cmd.next(COMMAND);
+            next := cmd.next;
 
             IF next.opcode = IL.opJNZ THEN
                 jcc(cc, next.param1);
@@ -2274,12 +2502,15 @@ BEGIN
             OutByte(param2)
 
         |IL.opFNAME:
-            fname := cmd(IL.FNAMECMD).fname
+            IL.GetName(param1, fname)
 
         END;
 
-        cmd := cmd.next(COMMAND)
+        cmd := cmd.next
     END;
+
+    (* The loop leaves the tail of the list behind. *)
+    IL.freeUpTo(NIL);
 
     ASSERT(R.pushed = 0);
     ASSERT(R.top = -1);
@@ -2287,7 +2518,7 @@ BEGIN
 END translate;
 
 
-PROCEDURE prolog (pic: BOOLEAN; target, stack, dllret: INTEGER): INTEGER;
+PROCEDURE prolog (pic: BOOLEAN; target, stack, dllret, dllfail: INTEGER): INTEGER;
 VAR
     reg1, entry, L, dcount: INTEGER;
 
@@ -2299,22 +2530,37 @@ BEGIN
     push(ebp);
     mov(ebp, esp);
     SetLabel(NewLabel());
-    mainFltConstLabel := CodeList.last(LABEL);
+    mainFltConstLabel := ncount;
     FltConstLabel := mainFltConstLabel;
+    mainFltIns := 0;
+    fltIns := 0;
     mainLocVarSize := 0;
     LocVarSize := 0;
 
-    IF target IN {TARGETS.Win32DLL, TARGETS.KolibriOSDrv} THEN
-        IF target = TARGETS.Win32DLL THEN
-            pushm(ebp, 16)
-        ELSE
+    IF target IN {TARGETS.Win32DLL, TARGETS.HXDOSDLL, TARGETS.KolibriOSDrv} THEN
+        IF target = TARGETS.KolibriOSDrv THEN
             pushc(0)
+        ELSE
+            pushm(ebp, 16)  (* the loader's third argument (Win32 DllMain's lpvReserved) *)
         END;
         pushm(ebp, 12);
         pushm(ebp, 8);
         CallRTL(pic, IL._dllentry);
-        test(eax);
-        jcc(je, dllret);
+        IF target = TARGETS.HXDOSDLL THEN
+            (* 1 asks for the module bodies, 2 says the loader wants something
+               else and the load stands, 0 is an attach that failed. The zero
+               has to reach the loader unchanged: a module whose heap could not
+               be attached must not be handed out as loaded, or the first
+               allocation in it takes memory the EXE cannot free. See
+               lib/HXDOS/API.dllentry. *)
+            cmprc(eax, 0);
+            jcc(je, dllfail);
+            cmprc(eax, 1);
+            jcc(jne, dllret)
+        ELSE
+            test(eax);
+            jcc(je, dllret)
+        END;
         pushc(0)
     ELSIF target = TARGETS.KolibriOSDLL THEN
         OutByte(68H);  (* push IMPORT *)
@@ -2354,7 +2600,7 @@ BEGIN
 
     CallRTL(pic, IL._init);
 
-    IF target IN {TARGETS.Win32C, TARGETS.Win32GUI, TARGETS.Linux32} THEN
+    IF target IN {TARGETS.Win32C, TARGETS.Win32GUI, TARGETS.Linux32, TARGETS.HXDOS} THEN
         L := NewLabel();
         pushc(0);
         push(esp);
@@ -2373,7 +2619,34 @@ BEGIN
 END prolog;
 
 
-PROCEDURE epilog (pic: BOOLEAN; modname: ARRAY OF CHAR; target, stack, ver, dllinit, dllret, sofinit: INTEGER);
+(* The code label of a procedure the runtime module defines, for the one
+   export that names a procedure rather than something the code generator
+   already holds. The label only has a value once the procedure has been
+   emitted, so the caller has to be one that setrtl has already marked used -
+   the label of a procedure DelUnused dropped reads as 0. *)
+PROCEDURE RtlProc (name: SCAN.IDSTR): INTEGER;
+VAR
+    id:    PROG.IDENT;
+    ident: SCAN.IDENT;
+    res:   INTEGER;
+
+BEGIN
+    res := 0;
+    SCAN.setIdent(ident, name);
+    id := PROG.getIdent(PROG.program.rtl, ident, FALSE);
+
+    IF (id # NIL) & (id.proc # NIL) THEN
+        id.proc.used := TRUE;
+        res := id.proc.label
+    ELSE
+        ERRORS.WrongRTL(name)
+    END;
+
+    RETURN res
+END RtlProc;
+
+
+PROCEDURE epilog (pic: BOOLEAN; modname: ARRAY OF CHAR; target, stack, ver, dllinit, dllret, dllfail, sofinit: INTEGER);
 VAR
     exp:  IL.EXPORT_PROC;
     path, name, ext: PATHS.PATH;
@@ -2404,14 +2677,25 @@ VAR
 
 BEGIN
 
-    IF target IN {TARGETS.Win32C, TARGETS.Win32GUI, TARGETS.KolibriOS, TARGETS.Linux32} THEN
+    IF target IN {TARGETS.Win32C, TARGETS.Win32GUI, TARGETS.KolibriOS, TARGETS.Linux32, TARGETS.HXDOS} THEN
         pushc(0);
         CallRTL(pic, IL._exit);
-    ELSIF target = TARGETS.Win32DLL THEN
+    ELSIF target IN {TARGETS.Win32DLL, TARGETS.HXDOSDLL} THEN
         SetLabel(dllret);
         movrc(eax, 1);
         OutByte(0C9H); (* leave *)
-        OutByte3(0C2H, 0CH, 0) (* ret 12 *)
+        OutByte3(0C2H, 0CH, 0); (* ret 12 *)
+        IF target = TARGETS.HXDOSDLL THEN
+            (* Where an attach that failed lands, so that the 0 the entry
+               point answered is the 0 the loader sees. It is reached by a
+               jump from the entry code and by nothing else: the module
+               bodies fall into the answer 1 above, which is how a load that
+               has to stand leaves. *)
+            SetLabel(dllfail);
+            movrc(eax, 0);
+            OutByte(0C9H); (* leave *)
+            OutByte3(0C2H, 0CH, 0) (* ret 12 *)
+        END
     ELSIF target = TARGETS.KolibriOSDrv THEN
         OutByte(0C9H); (* leave *)
         ret;
@@ -2457,6 +2741,17 @@ BEGIN
         BIN.Export(program, "lib_init", dllinit);
     END;
 
+    (* An HX-DOS EXE owns the process heap, and a DLL it loads has none of its
+       own: the DLL is entered with the EXE already holding the one large DPMI
+       block, so it must allocate through the EXE instead. The runtime's own
+       allocator is therefore exported by name, and the DLL resolves it off
+       the main module with GetProcAddress before its first allocation.
+       Only the EXE exports it - a DLL has no heap to lend. *)
+    IF target = TARGETS.HXDOS THEN
+        BIN.Export(program, "new", RtlProc("_heapnew"));
+        BIN.Export(program, "dispose", RtlProc("_heapdispose"))
+    END;
+
     exp := IL.codes.export.first(IL.EXPORT_PROC);
     WHILE exp # NIL DO
         BIN.Export(program, exp.name, exp.label);
@@ -2486,7 +2781,7 @@ END align16;
 
 PROCEDURE CodeGen* (outname: ARRAY OF CHAR; target: INTEGER; options: PROG.OPTIONS);
 VAR
-    dllret, dllinit, sofinit: INTEGER;
+    dllret, dllfail, dllinit, sofinit: INTEGER;
     opt: PROG.OPTIONS;
 
 BEGIN
@@ -2495,11 +2790,12 @@ BEGIN
     tcount := CHL.Length(IL.codes.types);
 
     opt := options;
-    CodeList := LISTS.create(NIL);
 
+    Free;
     program := BIN.create(IL.codes.lcount);
 
     dllret  := NewLabel();
+    dllfail := NewLabel();
     sofinit := NewLabel();
 
     IF target = TARGETS.KolibriOSDLL THEN
@@ -2510,19 +2806,23 @@ BEGIN
         opt.pic := TRUE
     END;
 
-    IF TARGETS.OS IN {TARGETS.osWIN32, TARGETS.osLINUX32} THEN
+    IF TARGETS.OS = TARGETS.osLINUX32 THEN
         opt.pic := TRUE
     END;
 
     REG.Init(R, push, pop, mov, xchg, {eax, ecx, edx});
 
-    dllinit := prolog(opt.pic, target, opt.stack, dllret);
+    dllinit := prolog(opt.pic, target, opt.stack, dllret, dllfail);
     translate(opt.pic, tcount * 4, target);
-    epilog(opt.pic, outname, target, opt.stack, opt.version, dllinit, dllret, sofinit);
+    epilog(opt.pic, outname, target, opt.stack, opt.version, dllinit, dllret, dllfail, sofinit);
 
     BIN.fixup(program);
     IF TARGETS.OS = TARGETS.osWIN32 THEN
-        PE32.write(program, outname, target = TARGETS.Win32C, target = TARGETS.Win32DLL, FALSE, opt.PE32FileAlignment)
+        IF target IN {TARGETS.HXDOS, TARGETS.HXDOSDLL} THEN
+            PE32.writeHX(program, outname, target = TARGETS.HXDOSDLL, FALSE, opt.PE32FileAlignment)
+        ELSE
+            PE32.write(program, outname, target = TARGETS.Win32C, target = TARGETS.Win32DLL, FALSE, opt.PE32FileAlignment)
+        END
     ELSIF target = TARGETS.KolibriOSDrv THEN
         PE32.write(program, outname, FALSE, TRUE, FALSE, 512)
     ELSIF target IN {TARGETS.KolibriOS, TARGETS.KolibriOSKer} THEN
@@ -2537,8 +2837,8 @@ END CodeGen;
 
 PROCEDURE SetProgram* (prog: BIN.PROGRAM);
 BEGIN
-    program := prog;
-    CodeList := LISTS.create(NIL)
+    Free;
+    program := prog
 END SetProgram;
 
 

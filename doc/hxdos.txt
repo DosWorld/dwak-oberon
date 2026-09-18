@@ -1,0 +1,933 @@
+================================================================================
+                          HX-DOS: knowledge base
+================================================================================
+
+Internal reference for the `hxdos` target, lib/HXDOS, base relocations and
+running programs in DOSBox / DOSBox-X. Updated as work progresses.
+
+--------------------------------------------------------------------------------
+1. What HX-DOS is
+--------------------------------------------------------------------------------
+
+HX is a freeware (Japheth) DOS extender and PE loader. It runs Win32 console
+applications on plain MS-DOS/FreeDOS by emulating part of the Win32 API. HX
+replaces imported DLLs by name:
+
+    KERNEL32.DLL -> DKRNL32.DLL   ADVAPI32 -> DADVAPI.DLL   USER32 -> DUSER32.DLL
+    GDI32.DLL    -> DGDI32.DLL    DDRAW    -> DDDRAW.DLL
+
+msvcrt.dll is NOT emulated. HX sources: HX-2.23.zip in the repo root (Src,
+SrcEmu/DKRNL32, Src/DPMILDR).
+
+Local install: C:\dos\c\HX\ ; PATH must contain C:\HX\BIN (set by
+C:\dos\c\autoexec.bat).
+
+--------------------------------------------------------------------------------
+2. Formats, stubs and the key findings
+--------------------------------------------------------------------------------
+
+Stubs in HX\BIN: DPMIST32.BIN (512 b, starts DPMILD32.EXE), LOADPE.BIN (1398 b,
+import-free DPMI client), LOADPEX.BIN (LOADPE + embedded HDPMI), LOADPE etc.
+
+The compiler embeds a stub (source/HXSTUB.ob07) so no external stub file is
+needed at build time.
+
+Verified facts (built/tested in DOSBox-X):
+
+- DPMIST32.BIN + normal PE signature ("PE") is used for the hxdos target.
+  DPMILD32 loads the image; KERNEL32 (if imported) maps to DKRNL32.
+- Direct `int 21h` from the HX client DOES work (DKRNL32 itself uses direct
+  int 21h; see SrcEmu/DKRNL32/CREFILE.ASM, READFILE.ASM, GETCMDL.ASM).
+- Only *some* DOS functions are translated by the environment:
+    * console: AH=02h, AH=40h (handle 1)  - work
+    * LFN open: AH=716Ch                  - works (use this, not AH=3Dh!)
+    * 8.3 open: AH=3Dh                    - NOT translated (AX unchanged)
+    * read/write: AH=3Fh / AH=40h         - work (CX is 16-bit! chunk it)
+    * PSP: AH=51h (selector) / AH=62h
+- int 21h may clobber segment registers; DOS.Intr saves/restores ES/DS/FS/GS.
+- int 31h (DPMI) IS reachable: AX=0400h returns version 0x005A (DPMI 0.90).
+  DPMI AX=0501h (allocate linear memory) works, but the parameter convention
+  is unusual (see HDPMI\I31MEM.ASM):
+      input  size  in BX:CX (BX high, CX low);
+      output addr  in BX:CX, handle in SI:DI.
+  AX=0100h (DOS memory) also works; AX=0501h with size in ECX:EBX returns
+  error 8021/8013. A dynamic heap is built on one 0501h block.
+- int 21h AH=47h/7147h (get current dir) and AH=3Dh (8.3 open) are not
+  usable; paths are kept relative to the current directory, files are opened
+  with LFN AH=716Ch.
+- LOADPE/LOADPEX + "PX" signature were tried and reverted; DPMIST32 is used.
+
+The rest of the file system, measured one call at a time under DOSBox-X:
+
+- AH=716Ch  LFN open/create - works. DOSBox does not enforce the BX access
+            bits, so a read handle can write; DOS.ob07 still asks for the
+            right mode.
+- AH=3Fh/40h/42h  read/write/seek - work. CX is 16-bit, so DOS.ob07 chunks
+            long transfers into 0FF00h pieces and honours the count in EAX.
+- AH=4300h  get attributes - works (there is no LFN variant to prefer).
+            Bit 4 of the attribute byte is the directory flag, which is how
+            File.Exists/ExistsDir tell the two apart.
+- AH=41h    delete - works, with the path in DS:DX.
+- AH=7141h  LFN delete   - NOT implemented (returns error 2, "file not
+            found"). AH=7143h LFN get attributes is likewise absent. This is
+            why the attribute and delete calls above are the 8.3 ones.
+- AH=7139h  mkdir / AH=713Ah rmdir - work.
+- AH=3Eh    close - works.
+- AH=51h    the PSP selector comes back in EBX, not BX.
+
+Two dead ends, recorded so they are not retried:
+
+- The program path is NOT reachable through the PSP. PSP:002Ch holds the
+  environment segment, and under HX's DPMILD32 it is 0, so there is no MCB to
+  walk back to the name.
+- HX's own loader does answer, and that is what DOS.ProgPath uses. AX=4B82h
+  with EDX=0 returns the main module handle in EAX and the head of the module
+  list in ECX; AX=4B86h with EDX=handle returns a flat pointer to the
+  NUL-terminated module path. DKRNL32.ASM and INITW32X.ASM use exactly this
+  sequence, which is why it is known to work here. Both handle and pointer
+  come back in the 32-bit registers, so the two calls are hand-assembled in
+  DOS.GetModuleName rather than driven through the 16-bit Registers record.
+
+Console, without any BIOS call and without INT 31h AX=0300h. An HX client runs
+flat, so the low 1 MB of linear address space is directly addressable and some
+of it is worth reading:
+
+- 0x44A holds the screen width in columns, 0x484 the number of rows minus one,
+  and 0x450 the cursor of page 0 as row*256+column in the low word. This is the
+  same cursor DOS reads and writes: setting it through the BDA moves DOS's own
+  output, and DOS's output moves it back.
+- 0xB8000 is text page 0. Writing characters and attributes straight into it
+  is what Console.SetColor is built on.
+- DOSBox preserves the attribute byte of a cell that DOS writes through
+  AH=02h/40h; a cell primed with attribute 2Ah and then written by DOS keeps
+  2Ah. DOS writes its own characters with whatever attribute the cell already
+  had, so the two output paths do not fight: a line written while no colour is
+  set (through DOS) and a line written while one is (through video memory)
+  come out uniformly attributed, which is what a program that sets a colour
+  for one string and clears it for the next expects to see.
+- The CRTC cursor registers (03D4h/03D5h, index 0Eh/0Fh) survive being poked,
+  so the hardware cursor follows without a BIOS call. They hold the cursor as
+  one linear offset, high byte first - not a row and a column - so SetCursor
+  writes y*cols + x and not y and x. Read back straight afterwards,
+  SetCursor(21,3) has left 0Eh=1 and 0Fh=5, and SetCursor(79,24) 0Eh=7 and
+  0Fh=207, which is 3*80+21 and 24*80+79. Reading the registers back is a poor
+  oracle under DOSBox-X: a read that follows the write immediately can hand
+  back a stale byte for one of the two, which reads as a library bug and is
+  not one, so the probe interleaves a write, a read and some output.
+
+--------------------------------------------------------------------------------
+3. lib/HXDOS (zero imports)
+--------------------------------------------------------------------------------
+
+DOS.ob07 - low level, no Win32 DLL imports:
+    Registers* = RECORD
+        EAX*,EBX*,ECX*,EDX*,ESI*,EDI*,EBP*,ESP*: INTEGER;   (* 32-bit *)
+        Flags*,ES*,DS*,FS*,GS*,CS*,SS*: WORD
+    END;
+    Intr* (VAR r: Registers)  - executes int 21h with the registers from r
+        (via Exec21), preserving all registers incl. segments. There is no
+        interrupt-number parameter: x86 spells `int` with an immediate, every
+        DOS service here is int 21h, and DPMI has Exec31 of its own.
+    DpmiVer* / DpmiAlloc* / AllocDOS9* (DPMI int 31h via Exec31) - linear
+        and DOS memory allocation.
+    Console, character at a time or in bulk:
+        PutChar / WrBuf (chunked AH=40h) / IsConsole (AH=44h) / RdLine (AH=0Ah)
+        ScrCols / ScrRows (BDA) / GetCursor / SetCursor / CrtcCursor (BDA and
+        CRTC ports) / SetAttr / Attr / AttrOn / ClearScr / ScrollUp /
+        WrAttr (colour text straight into video memory)
+    File system:
+        FileOpen (LFN 716Ch) / FileOpenMode / FileCreate / FileAttr /
+        FileDelete / MkDir / RmDir / FileSeek / FileRead / FileWrite /
+        FileClose
+    Process and environment:
+        Exit / CmdLine / ProgPath / GetModuleName / GetCurDir / GetDrive
+        GetDate / GetTime / GetTime100
+
+    RdLine reads through AH=0Ah, so a line is limited to 254 characters by DOS
+    itself; In.String keeps its own 1024-byte buffer and truncates to whatever
+    actually arrived. WrAttr handles CR and LF by moving its own cursor and
+    scrolling, because a cell written directly has no terminal to interpret
+    control characters for it.
+
+    ProgPath hands back -1 when the loader will not answer. Args then builds
+    its command line with a `program.exe` stand-in rather than letting the first
+    real argument be mistaken for the program; it is a fallback that has never
+    been seen in practice, but a wrong argv[0] is worse than a placeholder.
+
+API.ob07 - dynamic heap: one large block from DPMI int 31h AX=0501h, sized
+    at start-up from the host rather than hardcoded:
+        DpmiMaxFree() asks AX=0500h for the largest free linear block and the
+        heap takes that much; if the host refuses that exact size, the request
+        is halved and retried, and so on until 0. Only when the host will not
+        answer at all (0500h reports nothing) does it probe downwards from a
+        32 MB ceiling. So a 128 MB DOSBox and a 16 MB machine both get a heap
+        that fits without over-committing.
+    First-fit that carves the BEGINNING of the chosen free block, with
+    neighbour coalescing on free (next, then previous). Exit via int 21h 4Ch,
+    no user32/msvcrt.
+
+    _NEW hands back ZEROED memory, and that is load-bearing rather than
+    tidy. The Windows runtime allocates with HEAP_ZERO_MEMORY
+    (lib/Windows/API.ob07), so the compiler and its libraries are written
+    against that promise and routinely leave record fields to be filled in
+    later. A DPMI block, unlike a fresh Windows heap, comes back from the host
+    still holding the previous client's bytes. Without the clear, the first
+    program in a DOSBox session was fine and every later one read stale
+    memory: the compiler compiled the first sample, then died silently a few
+    modules into the second, and was healthy again in a fresh session - which
+    looked exactly like a leak or a heap-sizing problem and was neither. With
+    the trap handler made audible (next paragraph) it turned out to be an
+    assertion in PROG.newUnit, where openScope increments unit.scopeLvl before
+    the line that initialises it.
+
+    DebugMsg writes its message to the console. RTL._error reports every trap
+    through it - assertion failure, NIL dereference, index out of range - so
+    the empty DebugMsg the port started with turned each one into a silent
+    exit with no message and no exit code.
+
+  The allocator is O(n) per allocation, which is fine for programs that keep
+  few blocks live but quadratic for the compiler's ~100k IL commands. That is
+  what the command arena in source/IL.ob07 is for (section 6).
+
+HOST.ob07 - console/files/args/current dir/DOS time on top of DOS. UnixTime
+    is real: DOS.GetDate/DOS.GetTime plus a civil-from-days conversion.
+
+RTL.ob07 is the usual runtime (imports API). OUT/IN/Console/File/Math/
+DateTime/Args are ported from lib/Windows minus msvcrt/user32 - and, since
+the work in this section was finished, minus kernel32 as well.
+
+Every one of those modules goes through DOS.ob07, and none of them imports a
+DLL any more. What each one needed:
+
+    Args      GetCommandLineA -> DOS.ProgPath plus DOS.CmdLine, stitched back
+              into the one string the parser expects: the quoted program path,
+              a space, then the command tail verbatim. Quoting the path keeps a
+              directory with a space in it in one piece, and it is what Windows
+              hands over too, so the argument numbering is identical on both
+              platforms.
+    DateTime  GetLocalTime -> DOS.GetDate / DOS.GetTime100. DOS keeps
+              hundredths rather than milliseconds, so MSec is the hundredths
+              value times ten.
+    File      CreateFile/ReadFile/WriteFile/SetFilePointer/DeleteFile/
+              attributes/directories -> the calls in section 2. Exists and
+              ExistsDir share one attribute query and read the directory bit;
+              there is no directory walk, so no DTA and no FindFirstFile.
+    Console   cursor, text attributes, clearing -> the BDA and video memory
+              described in section 2. No BIOS call and no INT 31h AX=0300h.
+              Out keeps the two paths apart on purpose: plain text goes through
+              DOS (so redirection to a file still works), and text written
+              while a colour is set goes to video memory, which has no notion
+              of a file to be redirected to.
+
+WINAPI.ob07 is gone. It existed only to supply the one kernel32 entry the
+ported libraries could not do without - GetCommandLineA, which DKRNL32 answers
+with NULL, a NULL command line being what made Args report a two-character
+program name. With Args rebuilt on the loader's own module path (section 2),
+nothing imported it, so the file was deleted rather than left behind.
+
+The hxdos libraries now import no DLL at all. The .idata section holds nothing
+but the terminating null descriptor, so the list the loader walks is empty
+after its first entry; the optional header still carries an import data
+directory, pointing at that descriptor with a size of one entry, which is what
+an empty import table looks like.
+
+--------------------------------------------------------------------------------
+4. Base relocations
+--------------------------------------------------------------------------------
+
+x86 PE targets (win32* and hxdos) are compiled NON-PIC; PE32.fixup handles the
+absolute opcodes RCODE/RDATA/RBSS/RIMP and a .reloc section
+(IMAGE_REL_BASED_HIGHLOW) is written. Linux32 (ELF) stays PIC; KolibriOS and
+AMD64/win64 are unchanged (win64 stays PIC without .reloc).
+
+--------------------------------------------------------------------------------
+5. Running in DOSBox
+--------------------------------------------------------------------------------
+
+- DOSBox 0.74 exposes .ob07 filenames as 8.3 (RTL~1.OB0) and cannot compile.
+- DOSBox-X (C:\DOSBox-X\dosbox-x.exe, config C:\DOSBox-X\dosbox-x.conf,
+  [dos] lfn = auto) supports LFN and is the environment used for testing.
+  Command: dosbox-x.exe -conf C:\DOSBox-X\dosbox-x.conf -c "..." -c "exit".
+- Exe names must be 8.3 (e.g. COMPILER.EXE, RAW21.EXE); names > 8.3 are not
+  resolved correctly by the loader under DOSBox-X.
+- Without HX's HDPMI, `DPMI.EXE` reports "No DPMI host found" (DOSBox's built-in
+  DPMI is not exposed to HX clients).
+
+One thing to know before building: a compiler looks for `lib\` beside itself.
+source/Compiler.ob07:210 takes the directory of `argv[0]`, appends
+`lib/<LibDir>/` and resolves the result against the current directory. The
+`Compiler.exe` shipped in the repo root carries the `hxdos` and `hxdosdll`
+targets, so SelfHXDOS.cmd drives it directly.
+
+On this target both halves of that lookup come out degenerate, and `lib\` ends
+up relative to the **current directory**:
+
+- `HOST.GetArg(0)` does not read the program name - lib/HXDOS/HOST.ob07:92 sets
+  `argv[0]` to the constant `Compiler.exe`, so the directory of `argv[0]` is
+  empty;
+- `HOST.GetCurrentDirectory` returns an empty string (HOST.ob07:148: AH=47h is
+  not translated for HX clients), so nothing is prepended to make it absolute.
+
+So `lib_path` is the literal `lib\HXDOS\`, and the compiler must be started from
+a directory that holds `lib\` - it does not matter where the binary itself is.
+The repo root is such a directory, and that is why the hxdos compiler ships
+there, as `hxcomp.exe`. Start it with the repo root as the current directory and
+nothing has to be copied; C:\dos\c\HXC2 is the same layout in miniature, with
+the compiler and `lib\HXDOS\*.ob07` in one directory.
+
+The name has to be 8.3, which is the reason for `hxcomp.exe` and not
+`hxCompiler.exe`. A longer name is not started at all: DOSBox-X opens the file
+for EXEC, but the loader is handed the 8.3-mangled name and cannot reopen it,
+
+    DPMILD32: Module=G:\HXCOMPIL.EXE
+    DPMILD32: File not found error
+
+whereas the same binary copied to `hxc.exe` compiles HelloHX from the repo root
+("3149 lines, 11264 bytes") and the result prints its "Hi". Long `.ob07` names
+are unaffected: the compiler opens those itself,
+through the LFN calls in lib/HXDOS/DOS.
+
+Three things learned the hard way:
+
+- A `-c` command runs before `[autoexec]` has mounted the drives, so it has to
+  name the batch file by full path: `-c "CALL C:\HXC\W.BAT"`, not
+  `-c "CALL W.BAT"`.
+- Every batch file run this way ends in `exit`. Without it the DOSBox console
+  stays open after the last program and the session hangs until it is killed.
+- MOUNT wants a host path in Windows form. This is the DOSBox-X Windows build,
+  and `-c "MOUNT G /c/dev/oberon-07-compiler"` - the msys form of the same
+  path - is accepted without complaint and mounts nothing: the drive letter
+  does not exist, so the `G:` that follows it is ignored, the current directory
+  stays on C:, and the compiler fails with `file lib\HXDOS\RTL.ob07 not found`,
+  which reads like a missing library rather than a missing drive. The two forms
+  differ only in the drive prefix; `MOUNT G C:\dev\oberon-07-compiler` works.
+
+Two lines of DOSBox-X log output are noise and appear for every HX client, the
+old kernel32-importing ones included, so they are not a symptom of anything:
+
+    ERROR EXEC:stack underflow/wrap at EXEC SS:SP=0630:0000
+    ERROR CPU:Illegal Unhandled Interrupt Called 68
+
+Both come from HX's own loader start-up, about 5 ms after the EXEC, and a
+program that prints them still runs to completion. A run of five unrelated
+binaries produced exactly five pairs, one per EXEC.
+
+`ERROR EXEC` is not to be confused with `E_Exit: DOS:0x0a:Redirected input
+reached EOF`, which is real: it is DOSBox-X shutting the whole emulator down
+because a redirected stdin ran out while a program was still reading it. Give
+a redirected test program more input lines than it reads, or do not redirect.
+
+--------------------------------------------------------------------------------
+6. The command arena, and one flat record in every back end
+--------------------------------------------------------------------------------
+
+The compiler allocates every IL command with NEW and, on the Windows targets,
+that is invisible: the OS heap is fast and a few MB of slack costs nothing. On
+the DOS target each NEW is a walk of the first-fit free list, and a full
+self-host keeps ~105k commands live at once, so the allocator goes quadratic
+and the build appears to hang (measured: module 27 of 38, PARS).
+
+The shape of a command had a second cost, this one paid on every target. A
+command used to be a family of records, one per kind of operation, with COMMAND
+as the base pointer; reaching a field of one meant a type guard - x(COMMAND),
+list.first(CONSTCMD) and the like - and Oberon compiles each of those into a
+call to RTL._guard. The front end and all the back ends were full of them.
+
+One flat record removes both problems:
+
+    COMMAND* = POINTER TO CMD;
+
+    CMD* = RECORD
+        opcode*: INTEGER;
+        param1*: INTEGER;
+        param2*: INTEGER;
+        param3*: INTEGER;
+        float*:  REAL;
+        next*, prev*: COMMAND
+    END;
+
+Every command now has the same size and no type tag, so a guard is unnecessary
+- the opcode is a field, not a type - and a command can be carved out of an
+arena instead of being a heap block of its own:
+
+    CONST SLOTS = 1024;
+
+    CHUNK = POINTER TO RECORD
+                next: CHUNK;
+                used: INTEGER;
+                body: ARRAY SLOTS OF CMD
+            END;
+
+AllocCmd bumps `used` and returns the address of the next free slot; a new
+chunk is NEW'd only when the current one is full, and the chunks are chained so
+IL.Free can DISPOSE them in one pass. Memory is only ever returned a chunk at a
+time, so a command that is no longer wanted is parked on a free list (`pool`,
+linked through next) rather than disposed, and NewCmd takes from the pool before
+carving. The stream is a doubly linked list of these records - codes.commands
+is its head, so there is no separate list object to keep in step - with link and
+unlink for the surgery and freeUpTo to hand back the commands code generation
+has already walked past; the back ends move strictly forwards and never look
+back, so each node is dead by the time the next one is reached.
+
+Measured on a self-host of source/Compiler.ob07 to hxdos: 105349 commands in
+103 chunks. They used to be 105349 separate heap blocks of 56 bytes each; a CMD
+is 32 bytes on the 32-bit targets, so the same build now needs 3.4 MB instead of
+5.9 MB and the allocator sees 103 blocks instead of 105349. The file names
+opFNAME points at live in codes.names, a CHL.BYTELIST, not in the commands
+themselves, so nothing needed special-casing.
+
+The three back ends that keep a code list of their own use the same shape. X86,
+THUMB and MSP430 each have one flat node record with a `kind` field as the
+discriminator - tCODE/tLABEL/tJMP/tJCC/tCALL/tRELOC on x86, tWORD/tLABEL/tJMP/
+tCALL/tRELOC on MSP430 - carved out of chunks of 1024 exactly as above and
+addressed by integer index, NodeAddr(i) being chunks[i DIV SLOTS].node[i MOD
+SLOTS], so a walk reads
+
+    FOR i := 0 TO ncount - 1 DO
+        n := NodeAt(i);
+        CASE n.kind OF ... END
+    END
+
+instead of traversing a linked list of differently typed records. AMD64 emits
+through X86 and shares its arena; RVMxI keeps no list at all.
+
+--------------------------------------------------------------------------------
+7. DLLs: the hxdosdll target, loading, and the one heap
+--------------------------------------------------------------------------------
+
+`hxdosdll` emits a PE DLL instead of a console EXE. It is the same pipeline
+with three differences: PE32.writeHX is told dll = TRUE, which sets
+IMAGE_FILE_DLL and selects the six-section layout `write` already used for
+win32dll (ImageBase 10000000h, .text/.data/.bss/.idata/.edata, plus .reloc
+whenever there are relocations); prolog pushes the three DllMain arguments the
+loader left on the stack and calls RTL._dllentry; epilog ends at the dllret
+label with EAX = 1, leave, ret 12 instead of the _exit call. Only `*`-marked
+procedures of the main module are exported - TARGETS.HXDOSDLL is a member of
+the `Dll` set that gates it.
+
+What the entry point answers is a reason, not a yes or a no, and prolog reads
+it as one: compare against 0, jump to the refusal exit if equal; compare
+against 1, jump to the success exit if not equal; fall through into the module
+bodies otherwise. So 1 runs the bodies and returns 1, 2 (and anything else
+non-zero) returns 1 without running them, and 0 returns 0 and the loader
+abandons the load. The two exits are separate blocks - the refusal block sits
+after the success block's `ret 12`, reachable only by that jump - because the
+module bodies fall into the success answer, and a refusal block placed between
+the two would have overwritten it. That was a real bug for one build, and it
+was the refusal block being put where it reads best rather than where it is
+safe: the entry code answered 1, the bodies ran, and the 0 that the next
+instruction wrote was what reached the loader -
+
+    DllLib: attached
+    DPMILD32: c:\hn\p\DLLLIB.DLL: dll init failed
+    DPMILD32: c:\hn\p\DLLLIB.DLL: cannot load PE file
+
+for a module that had already attached and printed its line.
+
+What the loader requires, from HX-2.23/Src/DPMILDR/PELOAD.ASM:
+
+- the entry point is called as entry(hModule, reason, taskFlags), a stdcall
+  DllMain. On DLL_PROCESS_ATTACH the load is abandoned unless EAX comes back
+  non-zero; the code is `cmp eax,1 / jc error_dll_initfailed`, i.e. only EAX ==
+  0 fails, although DPMILD32.TXT words it as "EAX != 1" (the `jnz` is commented
+  out in the source). lib/HXDOS/API.dllentry answers 1 for attach only and
+  dispatches the other three reasons to the SetDll callbacks, so the module
+  bodies do not run a second time at Free;
+- a DLL is allocated wherever there is room and rebased, unless
+  IMAGE_FILE_RELOCS_STRIPPED is set or DPMILDR=1024 asks for the preferred
+  address, and only IMAGE_REL_BASED_HIGHLOW entries are applied. A DLL's .reloc
+  is therefore not optional;
+- the Subsystem check is only reached for non-DLLs (`test Characteristics,
+  IMAGE_FILE_DLL / jnz isdll1` runs first), so Subsystem = 0 is harmless;
+- an entry point of zero is treated as success;
+- the DOS stub is never examined - the loader reads only e_lfanew and the PE
+  header - so a DLL carries the standard 128-byte stub, not DPMIST32: it is
+  mapped, never executed by DOS. Nothing moves as a result: with -fa 512 the
+  HX stub and the standard one both round SizeOfHeaders up to 1024;
+- DPMILD32 reports a failure that happened after the file was found as
+  AX = 000Bh with carry, and a failure to find it as the DOS error code
+  (2 = file not found). Its text goes to stdout by int 21h AH = 02 in the
+  source (DPMILD32.TXT says stderr and is wrong), but in these runs the text
+  did not appear in the redirected output at all, so the return code, not the
+  message, is what identifies a failure. AX = 000Bh out of 4B00h with the DLL's
+  entry point never reached is what section 7's last paragraph is about.
+
+The loader API is in lib/HXDOS/DOS.ob07, next to GetModuleName, and is int 21h
+direct - a program that loads a DLL imports nothing to do it:
+
+    Load(name)         AX=4B00h             -> handle, 0 on failure
+    GetProc(h, name)   AX=4B81h             -> address, 0 on failure
+    Free(h)            AX=4B80h             -> BOOLEAN
+    MainHandle()       AX=4B82h, EDX=0      -> the module the task started from
+
+The three are hand-written SYSTEM.CODE rather than DOS.Intr calls. Intr loads
+EAX/EBX/ECX/EDX/ESI/EDI from the Registers record and deliberately leaves the
+segment registers alone, and 4B00h is decided by the caller's ES: HX's own
+LoadLibraryExA clears ES and EBX ("no parm block for DLLs"), and an image whose
+Characteristics lack IMAGE_FILE_DLL is given an application's entry point when
+ES is not zero. Passing the *name* needs no segment work - EDX is a linear
+address and an HX client runs flat. Under DPMILD32 the name is resolved against
+the caller's path if it has one, otherwise the current directory; the PE path
+has no PATH search (contrary to DPMILD32.TXT), so a bare name means the current
+directory.
+
+The dynamic calls are re-entrant in the way that matters: DPMILD32 links a
+module into the task's list before resolving its imports and before calling its
+entry point, so a DLL may itself call 4B82h/4B81h while it is being loaded.
+That is how AttachHeap below works, and HX's own DKRNL32 does the same thing
+from its DllMain.
+
+Link-time (static) imports need no compiler change: TARGETS.Import is already
+TRUE for every osWIN32 target, so
+
+    PROCEDURE [windows-, DLLLIB.DLL, ""] Add* (a, b: INTEGER): INTEGER;
+
+declares one. The declaring module must IMPORT SYSTEM (PARS gates the form on
+the unit that imported it), the DLL name is upper-cased by the parser, and the
+symbol name is taken from the declaration when the third element is empty.
+default32 is callee-clean-up on x86 - which is exactly what the [windows-]
+stdcall the import declares means - so a plain `*`-exported Oberon procedure
+can be imported and called as it stands. samples/HXDOS/DllStatic is that.
+
+One heap per process, and it belongs to the EXE. A DLL has none of its own:
+whatever is still free when it starts is what the EXE could not take, and a
+heap built on that would be reachable from neither. So the EXE exports its
+allocator and the DLL resolves it off the main module at attach.
+
+- X86.epilog exports it for target HXDOS as `new` and `dispose`, naming
+  RTL._heapnew / RTL._heapdispose. Those are wrappers around API._NEW /
+  API._DISPOSE with the (size): INTEGER and (p): INTEGER shape the DLL calls.
+  What must NOT be exported is IL.codes.rtl[IL._new]: that is
+  RTL._new(t, size: INTEGER; VAR ptr: INTEGER) - three parameters ending in a
+  VAR out-parameter - so a DLL calling it with one argument meets a `ret 8`
+  with 4 bytes pushed and walks one stack slot per call, which is what an
+  earlier attempt did;
+- setrtl marks the two used, for that target, before PROG.DelUnused runs.
+  Nothing in the Oberon source names them and they are not in the IL runtime
+  table, so without that they are deleted long before the export is made and
+  the export names a label that was never placed, which reads as offset 0;
+- API.AttachHeap asks the loader for the main module (4B82h with EDX=0) and
+  then for the two names (4B81h), and keeps them in hostNew/hostDispose.
+  API._NEW / API._DISPOSE forward to them when they are set and use the local
+  block when they are not - so in the EXE they are what a NEW statement
+  reaches, and in the DLL they are the EXE's;
+- a DLL that cannot find them returns 0 from its entry point and refuses the
+  load rather than run on a heap of its own.
+
+That last one is testable without touching the library, and the test is the
+one that found the codegen bug above. DllDemo is the EXE in the pair, so it is
+the module that *exports* `new`/`dispose`; rename that export in a copy of
+DllDemo and AttachHeap will not find it. The export name table is in .edata,
+which DataDirectory[0] points at - file offset 3200h in the 13824-byte
+DllDemo - and the two names are at 323Ch ("new") and 3240h ("dispose"), so a
+three-byte name of the same length (`zqx`) is a patch of the image and nothing
+else. Run that EXE with the DLL beside it, and with the DLL built before the
+contract existed:
+
+    DllDemo: heap at 4231168 size 127176704
+    hxdos: DLL needs an EXE that exports new/dispose
+    DllDemo: cannot load DLLLIB.DLL
+    DllDemo: done
+
+    DllDemo: heap at 4231168 size 127176704
+    hxdos: DLL needs an EXE that exports new/dispose
+    DllDemo: DLLLIB.DLL at 2256896
+    DllDemo: DLL gave 131407892 - OUTSIDE the EXE heap
+
+The first is the current pair: the loader reported the failure, the handle came
+back 0 and the EXE carried on. The second is the same patch against the DLL as
+it was built before this - the load succeeded, the module body ran, and the
+first record it allocated landed 20 bytes past the end of the EXE's block
+(4231168 + 127176704 = 131407872): a second heap that neither side could ever
+free across. Both runs print the message, so the message alone is not the
+evidence; the handle and the address are.
+
+The heap is built lazily, and that is what makes the static case work at all.
+A statically imported DLL is entered during the EXE's own DoImports, before the
+EXE's RTL._init has run, and its first allocation is the type table - so
+API.SetupHeap is called from init and again from LocalNew, whichever comes
+first, and is idempotent.
+
+The EXE also has to leave the loader room to map a module, which is the one
+thing about this that is not obvious. SetupHeap asks the host for the largest
+free block (int 31h AX = 0500h) and holds back API.RESERVE (4 MB) before taking
+the rest, or half if there is less than twice that. Taking everything - which
+is what it did at first - costs the program its own ability to load a DLL: the
+loader asks for the image in one piece and gets nothing if what is left is
+smaller. The symptom is not a message but AX = 000Bh out of 4B00h and an entry
+point that is never entered; a DLL mapped at load time is unaffected, because
+it is mapped before the heap exists, which is why the static sample worked
+first and the dynamic one did not.
+
+What it looks like from a program's side, in DOSBox-X (DllDemo loads
+DLLLIB.DLL at run time, DllStatic is linked against it):
+
+    DllDemo: heap at 4231168 size 127176704
+    DllLib: attached
+    DllDemo: DLLLIB.DLL at 2256896
+    DllDemo: Add(2,3) =5
+    DllDemo: Mul(6,7) =42
+    DllDemo: calls  =2 (2 means the module body ran once)
+    DllDemo: DLL gave 6328436 - inside the EXE heap
+    DllDemo: value     =4242
+    DllDemo: disposed by the EXE
+    DllDemo: EXE gave  6328436
+    DllDemo: disposed by the DLL
+    DllDemo: freed
+    DllDemo: done
+
+    DllLib: attached
+    DllStatic: heap at 4231168 size 127143936
+    DllStatic: Add(2,3) =5
+    DllStatic: Mul(6,7) =42
+    DllStatic: Sub(9,4) =5 (5 means the arguments arrived in order)
+    DllStatic: calls  =3
+    DllStatic: DLL gave 6328436 - inside the EXE heap
+    DllStatic: value     =4242
+    DllStatic: disposed by the EXE
+    DllStatic: EXE-allocated record dropped by the DLL
+    DllStatic: done
+
+"attached" appears once in each run, so the entry point answered 1 for attach
+and something else for the other reasons; the counter the demo reads back
+through a second export is the same evidence from the other side. Where it
+appears is the difference between the two routes: DllStatic's DLL is entered
+during the EXE's own load, so its line comes before the EXE has printed
+anything, while DllDemo's is entered by 4B00h halfway down the run. The address
+both programs report for a record the *DLL* allocated sits inside the EXE's
+block, and two lines later each frees across: the EXE freeing what the DLL
+allocated and the DLL freeing what the EXE did.
+
+The cost of this on the EXE side is that every HX-DOS program now carries the
+two wrappers and a two-entry export directory, which moves the samples from
+9216/12800/13824/14848 to 11264/14848/15360/16896 bytes - one 512-byte file
+block in each section that grew. There is no switch for it: whether a program
+will load a DLL is not something the compiler can know.
+
+--------------------------------------------------------------------------------
+8. Redistributing a generated EXE
+--------------------------------------------------------------------------------
+
+An HX-DOS binary is not self-contained. The stub the compiler embeds
+(HXSTUB.ob07, a copy of DPMIST32.BIN) does one thing: it finds and starts the
+PE loader, which in turn starts a DPMI host if the machine has none. So a
+generated EXE has to travel with HX's runtime, and a program that uses DLLs
+with one more file of its own.
+
+The whole of it, for a console program built with `hxdos` or `hxdosdll`:
+
+    DPMILD32.EXE    the PE loader the stub starts, found through PATH
+    HDPMI32.EXE     the DPMI host the loader starts, next to the loader
+    <your>.EXE      the program
+    <your>.DLL      only if the program loads one
+
+That is all. Nothing of the Win32 emulation is needed: DKRNL32, DUSER32,
+DGDI32, DADVAPI, DDDRAW, OLE32, VERSION, VESA32 and the rest exist to satisfy
+DLL imports, and a lib/HXDOS program has none - its .idata is the single null
+descriptor that terminates the import list and nothing else. Neither is
+DPMIST32.BIN, which is only used to stamp an *unstubbed* PE file, nor
+DPMILD32.BIN, nor DPMILD16.EXE, nor any of the tools (DPMI.EXE, PESTUB.EXE,
+EDITPE, ...).
+
+That list was run rather than read off HX's documentation. A directory holding
+those files and nothing else, with PATH replaced by that directory alone, ran
+the plain console program, the program that loads DLLLIB.DLL at run time
+through the loader API and the program linked against it at link time, all
+three correctly. In the DLL demo the record the DLL allocates still lands
+inside the EXE's block and the two allocators still free each other's memory
+(section 7), so a DLL loaded out of that directory resolved `new`/`dispose`
+off the EXE while no part of HX's own installation was reachable.
+
+The caveat that makes those runs mean anything: this machine's boot drive has
+an AUTOEXEC.BAT whose first line is `PATH = C:\HX\BIN;%PATH%`, so every
+session starts with the whole HX installation on PATH. Each test *replaced*
+PATH rather than appended to it, and one of the negative controls below is
+what proves the replacement took effect.
+
+The other three runs:
+
+- with the current directory at the root of C: - which holds no part of HX -
+  and PATH still pointing at the one directory, the program ran anyway, so
+  DPMILD32.EXE is genuinely found through PATH;
+- taking HDPMI32.EXE away stops every one of the three before it starts, with
+  DPMILD32's own message on stdout:
+
+      DPMILD32: can't load HDPMI32.EXE
+      DPMILD32: Last DOS Error:
+              Extended Error Code 0002, Error Class 08
+              Suggested Action 01, Locus 00
+      DPMILD32: No DPMI server available
+
+  Under DOSBox-X as well, whose own DPMI is not visible to HX clients
+  (section 5). So HDPMI32.EXE is not a fallback for ancient machines only - it
+  is the DPMI host every measurement in this document was taken on. Note also
+  that C:\HX\BIN\HDPMI32.EXE was still there and still unreachable, which is
+  the check that the PATH in force was the test's own;
+- with HDPMI32.EXE one directory away but on PATH, and DPMILD32.EXE where it
+  belongs, the loader answers `can't load C:\HXR\HDPMI32.EXE` - it names the
+  directory DPMILD32.EXE is in. So HDPMI32.EXE is the exception to "PATH is
+  enough": it is looked for beside the loader and nowhere else
+  (DPMILD32.TXT section 1). Both runtime files in one directory is not a
+  convention here, it is the only arrangement that works.
+
+The machine this list exists for is a DOS with nothing else on it: no DOS
+extender, no memory manager, no DPMI host. Nothing beyond the two files is
+needed there either, and the reason is HDPMI's own - with no XMS host in
+memory it switches the A20 gate itself, by the keyboard-controller or the
+PS/2 port 92h method, and takes its memory from the extended-memory BIOS
+calls directly, so HIMEM.SYS is not a prerequisite. HDPMI.TXT section 2 puts
+the floor at a 386, MS-DOS 3.3 (FreeDOS, or DR-DOS 5.0) and 72 kB of extended
+memory to initialize the host; a machine with even less than that can still
+run it with `HDPMI=2`, which moves the page pool into conventional memory, at
+the price of a heap of whatever is left. HDPMI itself costs about 10 kB of
+conventional memory, 8 kB of it a translation buffer that `-b` gives back
+while no client is running.
+
+That was checked the same way, with the host's XMS, EMS and UMB support
+switched off, so that no memory manager's services were in reach: the same
+six-file directory ran all three programs, and the DLL demo still allocated
+and freed across the two modules. The failure mode on such a machine is
+therefore not "no memory manager" but "no HDPMI32.EXE", and the message in
+the list above is what it shows if the file is left out.
+
+What a small machine does change is the size of the heap, not whether the
+program starts. The runtime asks the host for everything it will give and
+holds back 4 MB for the loader (section 3), so a machine with little memory
+is not refused - it simply gets a small block, and a compilation that needs
+more than that fails on an allocation rather than at start-up.
+
+So the runtime is a private directory of two files added to PATH in
+AUTOEXEC.BAT, with the programs anywhere, which is also what HX's own
+documentation prescribes. If the target machine already runs HX for something
+else, its existing C:\HX\BIN satisfies both files and the program can simply
+be dropped beside it.
+
+One property of the loader worth knowing while debugging a redistribution:
+this one failure is loud, and the ones that come later are not. A load that
+gets past the DPMI host and then fails - a missing DLL, a rejected image -
+prints nothing at all, and the only signal is the return code.
+
+Two more things worth knowing when the set is assembled by hand:
+
+- HDPMI32.EXE is only started when no DPMI host is already resident. A machine
+  running Windows 9x, DOS/32A, CWSDPMI or another host does not need it - but
+  not every host can load HX binaries, and DPMILD32 will not displace one that
+  is already there. See HXRT.TXT section 5 for the table of which hosts work;
+- if the program's DLL has the same name as one of HX's emulation DLLs
+  (KERNEL32.DLL and friends), do not put a Windows system directory ahead of
+  the program's own in PATH. Nothing in lib/HXDOS collides, but a mixed
+  directory can.
+
+--------------------------------------------------------------------------------
+9. Status
+--------------------------------------------------------------------------------
+
+Everything below was measured in DOSBox-X (128 MB, cycles=max). The
+measurements are grouped into a few sessions rather than one, but within each
+session the programs ran one after another without restarting the emulator -
+which is the case that used to fail.
+
+Done:
+- base relocations for win32 + hxdos (including forced rebase);
+- hxdos target registered; DPMIST32.BIN hardcoded; PE32.writeHX;
+- lib/HXDOS on DOS and DPMI only: DOS.Intr + Registers, DPMI memory (sized
+  from the host, section 3), LFN file I/O, console, args, exit, UnixTime;
+- **the compiler built for hxdos has ZERO DLL imports**. The import
+  directory entry is present - PE32 always emits the section, so .idata is
+  there - but it points at a single 20-byte IMAGE_IMPORT_DESCRIPTOR whose
+  every field is zero, which is the null descriptor that terminates a list
+  and nothing else. So the list has no entries: zero DLLs are named, and the
+  loader resolves no import by name. The four samples are the same;
+- **the four samples compile, run and are correct**: HelloHX (11264 bytes;
+  "Hi"), OutDemo (14848 bytes), RemTest (15360 bytes; writes, reads and
+  deletes a file and prints arg0/arg1/arg2, including a quoted argument with a
+  space), LibsDemo (16896 bytes; sqrt(2) = 1.414213E+000,
+  sqrr(2) = 4.000000E+000, and UnixTime(2020-01-01) = 1577836800). These are
+  the sizes the export directory of section 7 leaves them at; before it they
+  were 9216/12800/13824/14848;
+- **Windows targets can be built from under DOSBox**: compiling Hello for
+  win32con there produces a binary that runs on Windows - "Hello, world!",
+  1758 lines, 7168 bytes - and it is byte-identical to the one built on
+  Windows from the same sources, differing only in the COFF TimeDateStamp at
+  0x88, 2 of its 4 bytes this time: how many of them differ is only a matter
+  of how far apart the two runs were. normhash.sh prints
+  1aa5b52e65581c97c1339f5fca467ba8 for each. Both sides were given the same
+  -out name, which every target needs: a win32con EXE exports nothing and so
+  has no export directory, but the name is in the image all the same, written
+  into .data as a NUL-padded string beside the literals, and `-out bin\AA.exe`
+  and `-out bin\BB.exe` differ in exactly the two bytes of that string. It is
+  stored whole rather than cut: `-out ABCDEFGHIJKLMNOPQRSTUVWXYZ.exe` keeps all
+  26 characters, and since the buffer is fixed the image does not change size
+  with the name. Build the Windows side with a compiler compiled from those
+  same sources: a shipped Compiler.exe older than the working tree differs
+  from the current source by much more than the timestamp - the one that
+  predated the hxdos work emitted no .reloc section for 32-bit targets and
+  larger code - which looks like a DOS-versus-Windows difference and is not.
+
+  What is out of reach from there is the *64-bit* targets. `win64con` comes
+  back as `bad parameter <target>`, which is not a DOS problem: the hxdos
+  compiler is a 32-bit program, so UTILS.bit_depth is 32, and
+  source/Compiler.ob07 refuses a target whose TARGETS.BitDepth is larger than
+  the compiler's own with that same error (the check is
+  `IF UTILS.bit_depth < TARGETS.BitDepth`). A 32-bit compiler cannot emit
+  64-bit code, here or anywhere else, so win32con/win32gui/win32dll,
+  kosexe, linux32 and the 32-bit microcontroller targets are the ones this
+  build can produce. Anything with cpuAMD64 - win64*, linux64*, rvm64i -
+  needs a 64-bit compiler, and the repo has one on Windows (Compiler.exe).
+- **the self-host reaches a fixpoint**:
+      HXNEW.EXE source\Compiler.ob07 hxdos -out C:\HXC2\N\HXNEW.EXE -stk 2 -fa 512
+      -> "29841 lines, 2.00 sec, 291840 bytes"
+  all 38 modules plus codegen and link, and then the compiler it wrote does the
+  same thing again:
+      G2.EXE    source\Compiler.ob07 hxdos -out C:\HXC2\N\HXNEW.EXE -stk 2 -fa 512
+      -> "29841 lines, 2.00 sec, 291840 bytes"
+  (G2.EXE is a copy of the first generation, so both runs were given the same
+  -out name and the two files are directly comparable.) Nothing differs but the
+  8 bytes of the two TimeDateStamp dwords - 0x208 in the COFF header and
+  0x45C04 in the export directory that PE32.write copies it into - of which
+  this pair differed in 2, one byte of each: how many of them differ is only a
+  matter of how far apart the two runs were. normhash.sh prints
+  e4c41460b173a9a247b79c612dbd36d5 for both, and every other section is byte
+  for byte the same. The clock is an input to the compilation rather than a
+  result of it, so the compiler is a fixed point of itself on this target. The
+  whole batch - the self-host, the DLL, the five samples and three of them run
+  - takes about 11 seconds of wall clock. Before the command arena (section 6)
+  the same run never got past module 27;
+- the DOS-built compiler and the one built on Windows from the same sources
+  are the same object code: 29841 lines and 291840 bytes each, the same two
+  TimeDateStamps apart when both are told to write the same -out name - and
+  normhash.sh prints
+  24e022a291291eddf1b2b8bef84ef708 for both. Section by section, the Windows
+  build differs from the DOS one in 0 bytes of .text, 0 of .data, 0 of
+  .idata and .reloc, and 2 of .edata - the TimeDateStamp PE32.write copies
+  into the export directory - with nothing else in the image. The Windows side
+  was built with the source compiled on Windows; building it with the prebuilt
+  Compiler.exe instead would read as a DOS-versus-Windows difference that is
+  really a revision difference (see the win32con bullet below);
+
+  The -out name has to match because it is *in* the image. It goes into .data
+  as a NUL-padded string, and an hxdos EXE exports new/dispose, so its export
+  directory's Name field points at that same string. What is stored is the
+  output file name with the directory part stripped at a backslash, as DOS
+  writes one - `-out C:\HXC2\N\HXNEW.EXE` embeds `HXNEW.EXE`, while `-out
+  bin/TMP.EXE`, with a forward slash and no backslash anywhere, keeps the
+  whole path - and it is stored whole, as on the other targets. A build given
+  a different name differs in that string, and in both TimeDateStamps: a
+  handful of bytes that look like a code difference and are not;
+- the compiler frees its IL and symbol tables when a compilation finishes
+  (IL.Free / PROG.Free), so a long-lived process does not grow per unit;
+- **the `hxdosdll` target and dynamic loading** (section 7). A DLL is built by
+  `compiler samples\HXDOS\Dll\DllLib.ob07 hxdosdll -out DLLLIB.DLL`; a program
+  loads one with the loader API in lib/HXDOS/DOS (direct int 21h, no import),
+  or is linked against one with a `[windows-, DLLLIB.DLL, ""]` import. The two
+  samples, DllDemo (dynamic) and DllStatic (link-time), both run in DOSBox-X
+  and both allocators come out shared: a record the DLL allocates lies inside
+  the EXE's block, the EXE frees what the DLL allocated and the DLL frees what
+  the EXE did. The EXE exports `new`/`dispose` for this and holds back 4 MB of
+  DPMI memory so the loader can still map a module. The other half of the
+  contract holds too: with the EXE's export renamed, the DLL refuses the load
+  and the demo gets a null handle, where the same patch against the build that
+  preceded it loaded a module with no allocator and allocated outside the EXE's
+  block. All of it is section 7, which also has the patch and both outputs;
+- Windows targets are unaffected: `checkgolden.sh` prints ALL GOLDEN OK for
+  the win64con sample set, and the win64 self-host fixpoint is exact
+  (identical md5);
+- the compiler ships as `hxcomp.exe` in the repo root, and it is a build of
+  these same sources: 29841 lines and 291840 bytes, the same numbers the DOS
+  fixpoint above reports. Building the tree again with `-out hxcomp.exe` gives
+  normhash.sh 21c401291f9f78fab114f49c0b7591d0, which is the shipped file's own
+  hash: the binary in the repo is exactly what the sources produce. It carries
+  its own name in the image - `hxcomp.exe`, 10 characters - and that is why its
+  normhash differs from the e4c41460... of the bullet above, whose builds were
+  given `-out HXNEW.EXE`. SelfHXDOS.cmd (Windows) and `make hxdos` rebuild it
+  in place. The name is 8.3 because the loader will not start a longer one
+  (section 5);
+- the other three root binaries were rebuilt from these same sources, so they
+  carry the two new targets as well: Compiler.exe 323072 bytes (win64con,
+  27721 lines), `compiler` 321360 (linux64exe, 27625), Compiler.Kex 279760
+  (kosexe, 28539); the line counts are what the same sources report when built
+  again today, the sizes are the shipped files'. Compiler.exe is a fixpoint of
+  itself - built with `-out Compiler.exe` first by the compiler it replaced and
+  then by itself, normhash.sh printed 8775e741350a108e1ec6fc32addc782c both
+  times, the second generation differing from the first in the two
+  TimeDateStamp bytes at 0x88 and nothing else, section for section; a
+  compiler cannot overwrite the file it is running from on Windows (`writing
+  file error`), so the second generation is started from a copy of the first
+  under another name, which does not change the image: the name in it comes
+  from -out, not from the file on disk. The Linux and KolibriOS binaries
+  cannot be run on this host (no WSL), so for them only the build was checked:
+  two runs given the same -out name produce identical files;
+- it is started from the repo root, as a check that the shipped binary is the
+  one that works: with the repo mounted and the root as the current directory,
+  `hxcomp.exe samples\HXDOS\HelloHX.ob07 hxdos -out C:\HXC2\N\HELLO.EXE -stk 2
+  -fa 512` reports "3149 lines, 0.00 sec, 11264 bytes" and the HELLO.EXE it
+  writes prints "Hi". The measurements above were taken in C:\dos\c\HXC2, a
+  scratch directory of programs and batch files beside the repo mount, and not
+  part of the repo.
+No markers or debug code remain in source.
+
+Also done, and this was the last open item: **the Win32 imports of user
+programs** (section 3). `Console`, `File`, `DateTime`, `Args`, `In` and `Out`
+were rebuilt on DOS, the loader and video memory, and `WINAPI.ob07` was
+deleted. Every hxdos binary now names no *system* DLL - its import table is
+the single null descriptor and nothing else - which was checked on the
+compiler, the four samples and the DOS-built generations alike. The one
+exception is DllStatic, and it is the point of that sample: its import table
+names DLLLIB.DLL, a module of this repo's own making, which the loader resolves
+at load time (section 7).
+
+What that looks like from a program's side, run in DOSBox-X:
+
+    HelloHX   Hi
+    OutDemo   HXDOS Out demo / i = 0..3 / 3.1415E+000
+    LibsDemo  sqrt(2) = 1.414213E+000, sqrr(2) = 4.000000E+000,
+              unix 2020-01-01 = 1577836800
+    RemTest   arg0=[c:\hxc\remtest.exe] arg1=[alpha] arg2=[beta gamma]
+              create=5 / write=3 / read=3 data=HI! / deleted
+
+The RemTest line is the one that matters most: `arg0` is the real program path,
+obtained from the loader with no DLL import and no PSP environment block, and
+`arg2` is a quoted argument with a space in it, so argument numbering matches
+the Windows build exactly.
+
+Console was checked against the hardware rather than against itself - a test
+program primes cells, reads them back out of video memory with SYSTEM.GET and
+compares:
+
+    cls done
+    plain  char=77 attr=7      (Out.String with no colour set)
+    colour char=82 attr=28     (LightRed on Blue = 12 + 4*16)
+    reset  char=78 attr=7
+    cursor after=21,3          (where DOS left it after the writes above)
+    cursor home=0,0
+
+So the colour attribute survives a write and a reset, and the cursor the
+console reports is the one DOS is using in both directions. A second program
+reads the CRTC back through the ports after calling Console.SetCursor:
+
+    after SetCursor(21,3)   crtc=1,5      (0Eh=1 0Fh=5   = 3*80+21)
+    after SetCursor(79,24)  crtc=7,207    (0Eh=7 0Fh=207 = 24*80+79)
+
+so the visible cursor moves with the reported one, without a BIOS call.
+
+The scratch programs under C:\dos\c\HXC (HXC, HXT, HXI, P0-P11) are test
+scaffolding and are not part of the repo; the four samples in samples\HXDOS
+are. Two of those probes reported failures that were their own: one was a
+stale .EXE - the same source rebuilt against the current library printed
+everything correctly - and one read a CRTC register back too soon after
+writing it. So if a DOSBox result looks impossible, rebuild the binary, and
+distrust a read that immediately follows the write it is checking.
+
+Also unverified: `make lin64` and `make kos` output. Nothing in the hxdos work
+touches the Linux or KolibriOS paths, and the win64 path is covered by the
+golden set, but those two were not rebuilt.
+
+--------------------------------------------------------------------------------
+10. Useful files
+--------------------------------------------------------------------------------
+
+- HX-2.23.zip                     - HX sources (SrcEmu/DKRNL32 has the exact
+                                    direct int 21h usage to mirror)
+- HX\HXRT.TXT, HXDEV.TXT, DOC\*   - HX documentation
+- PLAN.MD                         - full work plan
+================================================================================

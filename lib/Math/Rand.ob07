@@ -1,9 +1,4 @@
 ﻿(* ************************************
-   Генератор какбыслучайных чисел,
-   Линейный конгруэнтный метод,
-   алгоритм Лемера.
-   Вадим Исаев, 2020
-   -------------------------------
    Generator pseudorandom numbers,
    Linear congruential generator,
    Algorithm by D. H. Lehmer.
@@ -30,7 +25,7 @@ BEGIN
 END Randomize;
 
 
-(* Целые какбыслучайные числа 0..RAND_MAX-1 *)
+(* Pseudorandom integers 0..RAND_MAX-1 *)
 PROCEDURE RandomI* (): INTEGER;
 CONST
     a = 630360016;
@@ -41,27 +36,25 @@ BEGIN
 END RandomI;
 
 
-(* Какбыслучайные числа с плавающей запятой [0, 1) *)
+(* Pseudorandom floating-point numbers in [0, 1) *)
 PROCEDURE RandomR* (): REAL;
     RETURN FLT(RandomI()) / FLT(RAND_MAX)
 END RandomR;
 
 
-(* Какбыслучайное число в диапазоне 0..aTo-1
-   Return a random number in a range 0..aTo-1 *)
+(* Return a random number in a range 0..aTo-1 *)
 PROCEDURE RandomITo* (aTo: INTEGER): INTEGER;
     RETURN FLOOR(RandomR() * FLT(aTo))
 END RandomITo;
 
 
-(* Какбыслучайное число в диапазоне.
-   Return a random number in a range *)
+(* Return a random number in a range *)
 PROCEDURE RandomIRange* (aFrom, aTo: INTEGER): INTEGER;
     RETURN FLOOR(RandomR() * FLT(aTo - aFrom + 1)) + aFrom
 END RandomIRange;
 
 
-(* Какбыслучайное число. Распределение Гаусса *)
+(* Pseudorandom number. Gaussian distribution *)
 PROCEDURE RandG* (mean, stddev: REAL): REAL;
 VAR
     U, S: REAL;

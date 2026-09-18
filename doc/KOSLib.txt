@@ -1,67 +1,67 @@
 ﻿==============================================================================
 
-        Библиотека (KolibriOS)
+        Library (KolibriOS)
 
 ------------------------------------------------------------------------------
-MODULE Out - консольный вывод
+MODULE Out - console output
 
         PROCEDURE Open
-                формально открывает консольный вывод
+                formally opens the console output
 
         PROCEDURE Int(x, width: INTEGER)
-                вывод целого числа x;
-                width - количество знакомест, используемых для вывода
+                output of the integer x;
+                width - the number of character positions used for the output
 
         PROCEDURE Real(x: REAL; width: INTEGER)
-                вывод вещественного числа x в плавающем формате;
-                width - количество знакомест, используемых для вывода
+                output of the real number x in floating-point format;
+                width - the number of character positions used for the output
 
         PROCEDURE Char(x: CHAR)
-                вывод символа x
+                output of the character x
 
         PROCEDURE FixReal(x: REAL; width, p: INTEGER)
-                вывод вещественного числа x в фиксированном формате;
-                width - количество знакомест, используемых для вывода;
-                p - количество знаков после десятичной точки
+                output of the real number x in fixed-point format;
+                width - the number of character positions used for the output;
+                p - the number of digits after the decimal point
 
         PROCEDURE Ln
-                переход на следующую строку
+                move to the next line
 
         PROCEDURE String(s: ARRAY OF CHAR)
-                вывод строки s
+                output of the string s
 
 ------------------------------------------------------------------------------
-MODULE In - консольный ввод
+MODULE In - console input
 
         VAR Done: BOOLEAN
-                принимает значение TRUE в случае успешного выполнения
-                операции ввода, иначе FALSE
+                is set to TRUE if the input operation completes
+                successfully, otherwise FALSE
 
         PROCEDURE Open
-                формально открывает консольный ввод,
-                также присваивает переменной Done значение TRUE
+                formally opens the console input,
+                and also assigns TRUE to the variable Done
 
         PROCEDURE Int(VAR x: INTEGER)
-                ввод числа типа INTEGER
+                input of an INTEGER number
 
         PROCEDURE Char(VAR x: CHAR)
-                ввод символа
+                input of a character
 
         PROCEDURE Real(VAR x: REAL)
-                ввод числа типа REAL
+                input of a REAL number
 
         PROCEDURE String(VAR s: ARRAY OF CHAR)
-                ввод строки
+                input of a string
 
         PROCEDURE Ln
-                ожидание нажатия ENTER
+                wait for the ENTER key to be pressed
 
 ------------------------------------------------------------------------------
-MODULE Console - дополнительные процедуры консольного вывода
+MODULE Console - additional console output procedures
 
         CONST
 
-        Следующие константы определяют цвет консольного вывода
+        The following constants define the colour of the console output
 
                 Black = 0      Blue = 1           Green = 2
                 Cyan = 3       Red = 4            Magenta = 5
@@ -71,30 +71,30 @@ MODULE Console - дополнительные процедуры консоль�
                 White = 15
 
         PROCEDURE Cls
-                очистка окна консоли
+                clears the console window
 
         PROCEDURE SetColor(FColor, BColor: INTEGER)
-                установка цвета консольного вывода: FColor - цвет текста,
-                BColor - цвет фона, возможные значения - вышеперечисленные
-                константы
+                sets the colour of the console output: FColor - text colour,
+                BColor - background colour, the possible values are the
+                constants listed above
 
         PROCEDURE SetCursor(x, y: INTEGER)
-                установка курсора консоли в позицию (x, y)
+                sets the console cursor to the position (x, y)
 
         PROCEDURE GetCursor(VAR x, y: INTEGER)
-                записывает в параметры текущие координаты курсора консоли
+                writes the current console cursor coordinates into the parameters
 
         PROCEDURE GetCursorX(): INTEGER
-                возвращает текущую x-координату курсора консоли
+                returns the current x-coordinate of the console cursor
 
         PROCEDURE GetCursorY(): INTEGER
-                возвращает текущую y-координату курсора консоли
+                returns the current y-coordinate of the console cursor
 
 ------------------------------------------------------------------------------
-MODULE ConsoleLib - обертка библиотеки console.obj
+MODULE ConsoleLib - wrapper for the console.obj library
 
 ------------------------------------------------------------------------------
-MODULE Math - математические функции
+MODULE Math - mathematical functions
 
         CONST
 
@@ -103,96 +103,96 @@ MODULE Math - математические функции
 
 
         PROCEDURE IsNan(x: REAL): BOOLEAN
-                возвращает TRUE, если x - не число
+                returns TRUE if x is not a number
 
         PROCEDURE IsInf(x: REAL): BOOLEAN
-                возвращает TRUE, если x - бесконечность
+                returns TRUE if x is infinity
 
         PROCEDURE sqrt(x: REAL): REAL
-                квадратный корень x
+                square root of x
 
         PROCEDURE exp(x: REAL): REAL
-                экспонента x
+                exponential of x
 
         PROCEDURE ln(x: REAL): REAL
-                натуральный логарифм x
+                natural logarithm of x
 
         PROCEDURE sin(x: REAL): REAL
-                синус x
+                sine of x
 
         PROCEDURE cos(x: REAL): REAL
-                косинус x
+                cosine of x
 
         PROCEDURE tan(x: REAL): REAL
-                тангенс x
+                tangent of x
 
         PROCEDURE arcsin(x: REAL): REAL
-                арксинус x
+                arcsine of x
 
         PROCEDURE arccos(x: REAL): REAL
-                арккосинус x
+                arccosine of x
 
         PROCEDURE arctan(x: REAL): REAL
-                арктангенс x
+                arctangent of x
 
         PROCEDURE arctan2(y, x: REAL): REAL
-                арктангенс y/x
+                arctangent of y/x
 
         PROCEDURE power(base, exponent: REAL): REAL
-                возведение числа base в степень exponent
+                raises base to the power exponent
 
         PROCEDURE log(base, x: REAL): REAL
-                логарифм x по основанию base
+                logarithm of x to the base base
 
         PROCEDURE sinh(x: REAL): REAL
-                гиперболический синус x
+                hyperbolic sine of x
 
         PROCEDURE cosh(x: REAL): REAL
-                гиперболический косинус x
+                hyperbolic cosine of x
 
         PROCEDURE tanh(x: REAL): REAL
-                гиперболический тангенс x
+                hyperbolic tangent of x
 
         PROCEDURE arsinh(x: REAL): REAL
-                обратный гиперболический синус x
+                inverse hyperbolic sine of x
 
         PROCEDURE arcosh(x: REAL): REAL
-                обратный гиперболический косинус x
+                inverse hyperbolic cosine of x
 
         PROCEDURE artanh(x: REAL): REAL
-                обратный гиперболический тангенс x
+                inverse hyperbolic tangent of x
 
         PROCEDURE round(x: REAL): REAL
-                округление x до ближайшего целого
+                rounds x to the nearest integer
 
         PROCEDURE frac(x: REAL): REAL;
-                дробная часть числа x
+                fractional part of x
 
         PROCEDURE floor(x: REAL): REAL
-                наибольшее целое число (представление как REAL),
-                не больше x: floor(1.2) = 1.0
+                the largest integer (represented as REAL)
+                not greater than x: floor(1.2) = 1.0
 
         PROCEDURE ceil(x: REAL): REAL
-                наименьшее целое число (представление как REAL),
-                не меньше x: ceil(1.2) = 2.0
+                the smallest integer (represented as REAL)
+                not less than x: ceil(1.2) = 2.0
 
         PROCEDURE sgn(x: REAL): INTEGER
-                если x > 0 возвращает 1
-                если x < 0 возвращает -1
-                если x = 0 возвращает 0
+                if x > 0 returns 1
+                if x < 0 returns -1
+                if x = 0 returns 0
 
         PROCEDURE fact(n: INTEGER): REAL
-                факториал n
+                factorial of n
 
 ------------------------------------------------------------------------------
-MODULE Debug - вывод на доску отладки
-        Интерфейс как модуль Out
+MODULE Debug - output to the debug board
+        The interface is the same as that of module Out
 
         PROCEDURE Open
-                открывает доску отладки
+                opens the debug board
 
 ------------------------------------------------------------------------------
-MODULE File - работа с файловой системой
+MODULE File - file system operations
 
         TYPE
 
@@ -200,14 +200,14 @@ MODULE File - работа с файловой системой
 
                 FS = POINTER TO rFS
 
-                rFS = RECORD (* информационная структура файла *)
+                rFS = RECORD (* file information structure *)
                         subfunc, pos, hpos, bytes, buffer: INTEGER;
                         name: FNAME
                 END
 
                 FD = POINTER TO rFD
 
-                rFD = RECORD (* структура блока данных входа каталога *)
+                rFD = RECORD (* structure of a directory entry data block *)
                         attr: INTEGER;
                         ntyp: CHAR;
                         reserved: ARRAY 3 OF CHAR;
@@ -225,77 +225,77 @@ MODULE File - работа с файловой системой
                 SEEK_END = 2
 
         PROCEDURE Load(FName: ARRAY OF CHAR; VAR size: INTEGER): INTEGER;
-                Загружает в память файл с именем FName, записывает в параметр
-                size размер файла, возвращает адрес загруженного файла
-                или 0 (ошибка). При необходимости, распаковывает
-                файл (kunpack).
+                Loads the file named FName into memory, writes the file size
+                into the parameter size, returns the address of the loaded file
+                or 0 (error). If necessary, the file is unpacked
+                (kunpack).
 
         PROCEDURE GetFileInfo(FName: ARRAY OF CHAR; VAR Info: rFD): BOOLEAN
-                Записывает структуру блока данных входа каталога для файла
-                или папки с именем FName в параметр Info.
-                При ошибке возвращает FALSE.
+                Writes the directory entry data block structure for the file
+                or folder named FName into the parameter Info.
+                Returns FALSE on error.
 
         PROCEDURE Exists(FName: ARRAY OF CHAR): BOOLEAN
-                возвращает TRUE, если файл с именем FName существует
+                returns TRUE if the file named FName exists
 
         PROCEDURE Close(VAR F: FS)
-                освобождает память, выделенную для информационной структуры
-                файла F и присваивает F значение NIL
+                frees the memory allocated for the information structure of
+                file F and assigns NIL to F
 
         PROCEDURE Open(FName: ARRAY OF CHAR): FS
-                возвращает указатель на информационную структуру файла с
-                именем FName, при ошибке возвращает NIL
+                returns a pointer to the information structure of the file
+                named FName, returns NIL on error
 
         PROCEDURE Delete(FName: ARRAY OF CHAR): BOOLEAN
-                удаляет файл с именем FName, при ошибке возвращает FALSE
+                deletes the file named FName, returns FALSE on error
 
         PROCEDURE Seek(F: FS; Offset, Origin: INTEGER): INTEGER
-                устанавливает позицию чтения-записи файла F на Offset,
-                относительно Origin = (SEEK_BEG - начало файла,
-                SEEK_CUR - текущая позиция, SEEK_END - конец файла),
-                возвращает позицию относительно начала файла, например:
+                sets the read-write position of file F to Offset,
+                relative to Origin = (SEEK_BEG - beginning of file,
+                SEEK_CUR - current position, SEEK_END - end of file),
+                returns the position relative to the beginning of the file, for example:
                         Seek(F, 0, SEEK_END)
-                устанавливает позицию на конец файла и возвращает длину
-                файла; при ошибке возвращает -1
+                sets the position to the end of the file and returns the
+                file length; returns -1 on error
 
         PROCEDURE Read(F: FS; Buffer, Count: INTEGER): INTEGER
-                Читает данные из файла в память. F - указатель на
-                информационную структуру файла, Buffer - адрес области
-                памяти, Count - количество байт, которое требуется прочитать
-                из файла; возвращает количество байт, которое было прочитано
-                и соответствующим образом изменяет позицию чтения/записи в
-                информационной структуре F.
+                Reads data from the file into memory. F - pointer to the
+                information structure of the file, Buffer - address of the
+                memory area, Count - the number of bytes to be read from the
+                file; returns the number of bytes that were read and changes
+                the read/write position in the information structure F
+                accordingly.
 
         PROCEDURE Write(F: FS; Buffer, Count: INTEGER): INTEGER
-                Записывает данные из памяти в файл. F - указатель на
-                информационную структуру файла, Buffer - адрес области
-                памяти, Count - количество байт, которое требуется записать
-                в файл; возвращает количество байт, которое было записано и
-                соответствующим образом изменяет позицию чтения/записи в
-                информационной структуре F.
+                Writes data from memory to the file. F - pointer to the
+                information structure of the file, Buffer - address of the
+                memory area, Count - the number of bytes to be written to the
+                file; returns the number of bytes that were written and
+                changes the read/write position in the information structure
+                F accordingly.
 
         PROCEDURE Create(FName: ARRAY OF CHAR): FS
-                создает новый файл с именем FName (полное имя), возвращает
-                указатель на информационную структуру файла,
-                при ошибке возвращает NIL
+                creates a new file named FName (full name), returns a pointer
+                to the information structure of the file,
+                returns NIL on error
 
         PROCEDURE CreateDir(DirName: ARRAY OF CHAR): BOOLEAN
-                создает папку с именем DirName, все промежуточные папки
-                должны существовать, при ошибке возвращает FALSE
+                creates the folder named DirName, all intermediate folders
+                must exist, returns FALSE on error
 
         PROCEDURE DeleteDir(DirName: ARRAY OF CHAR): BOOLEAN
-                удаляет пустую папку с именем DirName,
-                при ошибке возвращает FALSE
+                deletes the empty folder named DirName,
+                returns FALSE on error
 
         PROCEDURE DirExists(DirName: ARRAY OF CHAR): BOOLEAN
-                возвращает TRUE, если папка с именем DirName существует
+                returns TRUE if the folder named DirName exists
 
 ------------------------------------------------------------------------------
-MODULE Read - чтение основных типов данных из файла F
+MODULE Read - reading basic data types from file F
 
-        Процедуры возвращают TRUE в случае успешной операции чтения и
-        соответствующим образом изменяют позицию чтения/записи в
-        информационной структуре F
+        The procedures return TRUE if the read operation succeeds and
+        change the read/write position in the information structure F
+        accordingly
 
         PROCEDURE Char(F: File.FS; VAR x: CHAR): BOOLEAN
 
@@ -310,11 +310,11 @@ MODULE Read - чтение основных типов данных из фай�
         PROCEDURE WChar(F: File.FS; VAR x: WCHAR): BOOLEAN
 
 ------------------------------------------------------------------------------
-MODULE Write - запись основных типов данных в файл F
+MODULE Write - writing basic data types to file F
 
-        Процедуры возвращают TRUE в случае успешной операции записи и
-        соответствующим образом изменяют позицию чтения/записи в
-        информационной структуре F
+        The procedures return TRUE if the write operation succeeds and
+        change the read/write position in the information structure F
+        accordingly
 
         PROCEDURE Char(F: File.FS; x: CHAR): BOOLEAN
 
@@ -329,36 +329,36 @@ MODULE Write - запись основных типов данных в файл
         PROCEDURE WChar(F: File.FS; x: WCHAR): BOOLEAN
 
 ------------------------------------------------------------------------------
-MODULE DateTime - дата, время
+MODULE DateTime - date, time
 
         CONST ERR = -7.0E5
 
         PROCEDURE Now(VAR Year, Month, Day, Hour, Min, Sec: INTEGER)
-                записывает в параметры компоненты текущей системной даты и
-                времени
+                writes the components of the current system date and time
+                into the parameters
 
         PROCEDURE Encode(Year, Month, Day, Hour, Min, Sec: INTEGER): REAL
-                возвращает дату, полученную из компонентов
+                returns the date built from the components
                 Year, Month, Day, Hour, Min, Sec;
-                при ошибке возвращает константу ERR = -7.0E5
+                returns the constant ERR = -7.0E5 on error
 
         PROCEDURE Decode(Date: REAL; VAR Year, Month, Day,
                                 Hour, Min, Sec: INTEGER): BOOLEAN
-                извлекает компоненты
-                Year, Month, Day, Hour, Min, Sec из даты Date;
-                при ошибке возвращает FALSE
+                extracts the components
+                Year, Month, Day, Hour, Min, Sec from the date Date;
+                returns FALSE on error
 
 ------------------------------------------------------------------------------
-MODULE Args - параметры программы
+MODULE Args - program parameters
 
         VAR argc: INTEGER
-                количество параметров программы, включая имя
-                исполняемого файла
+                the number of program parameters, including the name
+                of the executable file
 
         PROCEDURE GetArg(n: INTEGER; VAR s: ARRAY OF CHAR)
-                записывает в строку s n-й параметр программы,
-                нумерация параметров от 0 до argc - 1,
-                нулевой параметр -- имя исполняемого файла
+                writes the n-th program parameter into the string s,
+                the parameters are numbered from 0 to argc - 1,
+                parameter zero is the name of the executable file
 
 ------------------------------------------------------------------------------
 MODULE KOSAPI
@@ -367,121 +367,121 @@ MODULE KOSAPI
         PROCEDURE sysfunc2(arg1, arg2: INTEGER): INTEGER
         ...
         PROCEDURE sysfunc7(arg1, arg2, ..., arg7: INTEGER): INTEGER
-                Обертки для функций API ядра KolibriOS.
-                arg1 .. arg7 соответствуют регистрам
+                Wrappers for KolibriOS kernel API functions.
+                arg1 .. arg7 correspond to the registers
                         eax, ebx, ecx, edx, esi, edi, ebp;
-                возвращают значение регистра eax после системного вызова.
+                they return the value of the eax register after the system call.
 
         PROCEDURE sysfunc22(arg1, arg2: INTEGER; VAR res2: INTEGER): INTEGER
-                Обертка для функций API ядра KolibriOS.
-                arg1 - регистр eax, arg2 - регистр ebx,
-                res2 - значение регистра ebx после системного вызова;
-                возвращает значение регистра eax после системного вызова.
+                Wrapper for KolibriOS kernel API functions.
+                arg1 - the eax register, arg2 - the ebx register,
+                res2 - the value of the ebx register after the system call;
+                returns the value of the eax register after the system call.
 
         PROCEDURE malloc(size: INTEGER): INTEGER
-                Выделяет блок памяти.
-                size - размер блока в байтах,
-                возвращает адрес выделенного блока
+                Allocates a memory block.
+                size - the size of the block in bytes,
+                returns the address of the allocated block
 
         PROCEDURE free(ptr: INTEGER): INTEGER
-                Освобождает ранее выделенный блок памяти с адресом ptr,
-                возвращает 0
+                Frees a previously allocated memory block with the address ptr,
+                returns 0
 
         PROCEDURE realloc(ptr, size: INTEGER): INTEGER
-                Перераспределяет блок памяти,
-                ptr - адрес ранее выделенного блока,
-                size - новый размер,
-                возвращает указатель на перераспределенный блок,
-                0 при ошибке
+                Reallocates a memory block,
+                ptr - the address of the previously allocated block,
+                size - the new size,
+                returns a pointer to the reallocated block,
+                0 on error
 
         PROCEDURE GetCommandLine(): INTEGER
-                Возвращает адрес строки параметров
+                Returns the address of the parameter string
 
         PROCEDURE GetName(): INTEGER
-                Возвращает адрес строки с именем программы
+                Returns the address of the string with the program name
 
         PROCEDURE LoadLib(name: ARRAY OF CHAR): INTEGER
-                Загружает DLL с полным именем name. Возвращает адрес таблицы
-                экспорта. При ошибке возвращает 0.
+                Loads a DLL with the full name name. Returns the address of the
+                export table. Returns 0 on error.
 
         PROCEDURE GetProcAdr(name: ARRAY OF CHAR; lib: INTEGER): INTEGER
-                name - имя процедуры
-                lib - адрес таблицы экспорта DLL
-                Возвращает адрес процедуры. При ошибке возвращает 0.
+                name - the procedure name
+                lib - the address of the DLL export table
+                Returns the address of the procedure. Returns 0 on error.
 
 ------------------------------------------------------------------------------
-MODULE ColorDlg - работа с диалогом "Color Dialog"
+MODULE ColorDlg - working with the "Color Dialog" dialog
 
         TYPE
 
-                Dialog = POINTER TO RECORD (* структура диалога *)
-                    status: INTEGER   (* состояние диалога:
-                                         0 - пользователь нажал Cancel
-                                         1 - пользователь нажал OK
-                                         2 - диалог открыт       *)
+                Dialog = POINTER TO RECORD (* dialog structure *)
+                    status: INTEGER   (* dialog state:
+                                         0 - the user pressed Cancel
+                                         1 - the user pressed OK
+                                         2 - the dialog is open  *)
 
-                    color:  INTEGER   (* выбранный цвет *)
+                    color:  INTEGER   (* the selected colour *)
                 END
 
         PROCEDURE Create(draw_window: DRAW_WINDOW): Dialog
-                создать диалог
-                draw_window - процедура перерисовки основного окна
+                create a dialog
+                draw_window - procedure for redrawing the main window
                 (TYPE DRAW_WINDOW = PROCEDURE);
-                процедура возвращает указатель на структуру диалога
+                the procedure returns a pointer to the dialog structure
 
         PROCEDURE Show(cd: Dialog)
-                показать диалог
-                cd - указатель на структуру диалога, который был создан ранее
-                процедурой Create
+                show the dialog
+                cd - pointer to the dialog structure created earlier by the
+                procedure Create
 
         PROCEDURE Destroy(VAR cd: Dialog)
-                уничтожить диалог
-                cd - указатель на структуру диалога
+                destroy the dialog
+                cd - pointer to the dialog structure
 
 ------------------------------------------------------------------------------
-MODULE OpenDlg - работа с диалогом "Open Dialog"
+MODULE OpenDlg - working with the "Open Dialog" dialog
 
         TYPE
 
-                Dialog = POINTER TO RECORD (* структура диалога *)
-                    status:   INTEGER  (* состояние диалога:
-                                          0 - пользователь нажал Cancel
-                                          1 - пользователь нажал OK
-                                          2 - диалог открыт       *)
+                Dialog = POINTER TO RECORD (* dialog structure *)
+                    status:   INTEGER  (* dialog state:
+                                          0 - the user pressed Cancel
+                                          1 - the user pressed OK
+                                          2 - the dialog is open  *)
 
-                    FileName: ARRAY 4096 OF CHAR (* имя выбранного файла *)
-                    FilePath: ARRAY 4096 OF CHAR (* полное имя выбранного
-                                                    файла           *)
+                    FileName: ARRAY 4096 OF CHAR (* name of the selected file *)
+                    FilePath: ARRAY 4096 OF CHAR (* full name of the selected
+                                                    file            *)
                 END
 
         PROCEDURE Create(draw_window: DRAW_WINDOW; type: INTEGER; def_path,
                         filter: ARRAY OF CHAR): Dialog
-                создать диалог
-                draw_window - процедура перерисовки основного окна
+                create a dialog
+                draw_window - procedure for redrawing the main window
                         (TYPE DRAW_WINDOW = PROCEDURE)
-                type -  тип диалога
-                        0 - открыть
-                        1 - сохранить
-                        2 - выбрать папку
-                def_path - путь по умолчанию, папка def_path будет открыта
-                        при первом запуске диалога
-                filter - в строке записано перечисление расширений файлов,
-                        которые будут показаны в диалоговом окне, расширения
-                        разделяются символом "|", например: "ASM|TXT|INI"
-                процедура возвращает указатель на структуру диалога
+                type -  dialog type
+                        0 - open
+                        1 - save
+                        2 - select a folder
+                def_path - default path, the folder def_path will be opened
+                        when the dialog is started for the first time
+                filter - the string contains a list of file extensions that
+                        will be shown in the dialog window, the extensions are
+                        separated by the "|" character, e.g. "ASM|TXT|INI"
+                the procedure returns a pointer to the dialog structure
 
         PROCEDURE Show(od: Dialog; Width, Height: INTEGER)
-                показать диалог
-                od - указатель на структуру диалога, который был создан ранее
-                     процедурой Create
-                Width и Height - ширина и высота диалогового окна
+                show the dialog
+                od - pointer to the dialog structure created earlier by the
+                     procedure Create
+                Width and Height - width and height of the dialog window
 
         PROCEDURE Destroy(VAR od: Dialog)
-                уничтожить диалог
-                od - указатель на структуру диалога
+                destroy the dialog
+                od - pointer to the dialog structure
 
 ------------------------------------------------------------------------------
-MODULE kfonts - работа с kf-шрифтами
+MODULE kfonts - working with kf fonts
 
         CONST
 
@@ -494,73 +494,73 @@ MODULE kfonts - работа с kf-шрифтами
 
         TYPE
 
-                TFont = POINTER TO TFont_desc (* указатель на шрифт *)
+                TFont = POINTER TO TFont_desc (* pointer to a font *)
 
         PROCEDURE LoadFont(file_name: ARRAY OF CHAR): TFont
-                загрузить шрифт из файла
-                file_name   имя kf-файла
-                рез-т:          указатель на шрифт/NIL (ошибка)
+                load a font from a file
+                file_name   name of the kf file
+                result:         pointer to the font/NIL (error)
 
         PROCEDURE SetSize(Font: TFont; font_size: INTEGER): BOOLEAN
-                установить размер шрифта
-                Font        указатель на шрифт
-                font_size   размер шрифта
-                рез-т:          TRUE/FALSE (ошибка)
+                set the font size
+                Font        pointer to the font
+                font_size   font size
+                result:         TRUE/FALSE (error)
 
         PROCEDURE Enabled(Font: TFont; font_size: INTEGER): BOOLEAN
-                проверить, есть ли шрифт, заданного размера
-                Font        указатель на шрифт
-                font_size   размер шрифта
-                рез-т:          TRUE/FALSE (шрифта нет)
+                check whether a font of the given size is present
+                Font        pointer to the font
+                font_size   font size
+                result:         TRUE/FALSE (the font is not present)
 
         PROCEDURE Destroy(VAR Font: TFont)
-                выгрузить шрифт, освободить динамическую память
-                Font        указатель на шрифт
-                Присваивает переменной Font значение NIL
+                unload the font, free the dynamic memory
+                Font        pointer to the font
+                Assigns NIL to the variable Font
 
         PROCEDURE TextHeight(Font: TFont): INTEGER
-                получить высоту строки текста
-                Font        указатель на шрифт
-                рез-т:          высота строки текста в пикселях
+                get the height of a text line
+                Font        pointer to the font
+                result:         height of the text line in pixels
 
         PROCEDURE TextWidth(Font: TFont;
                     str, length, params: INTEGER): INTEGER
-                получить ширину строки текста
-                Font        указатель на шрифт
-                str         адрес строки текста в кодировке Win-1251
-                length      количество символов в строке или -1, если строка
-                            завершается нулем
-                params      параметры-флаги см. ниже
-                рез-т:          ширина строки текста в пикселях
+                get the width of a text line
+                Font        pointer to the font
+                str         address of the text string in Win-1251 encoding
+                length      number of characters in the string, or -1 if the string
+                            is terminated by zero
+                params      flag parameters, see below
+                result:         width of the text line in pixels
 
         PROCEDURE TextOut(Font: TFont;
                     canvas, x, y, str, length, color, params: INTEGER)
-                вывести текст в буфер
-                для вывода буфера в окно, использовать ф.65 или
-                ф.7 (если буфер 24-битный)
-                Font        указатель на шрифт
-                canvas      адрес графического буфера
-                            структура буфера:
+                output text into a buffer
+                to output the buffer into a window, use function 65 or
+                function 7 (if the buffer is 24-bit)
+                Font        pointer to the font
+                canvas      address of the graphics buffer
+                            buffer structure:
                               Xsize       dd
                               Ysize       dd
-                              picture     rb  Xsize * Ysize * 4 (32 бита)
-                                              или Xsize * Ysize * 3 (24 бита)
-                x, y        координаты текста относительно левого верхнего
-                            угла буфера
-                str         адрес строки текста в кодировке Win-1251
-                length      количество символов в строке или -1, если строка
-                            завершается нулем
-                color       цвет текста 0x00RRGGBB
-                params      параметры-флаги:
-                               1   жирный
-                               2   курсив
-                               4   подчеркнутый
-                               8   перечеркнутый
-                              16   применить сглаживание
-                              32   вывод в 32-битный буфер
-                            возможно использование флагов в любых сочетаниях
+                              picture     rb  Xsize * Ysize * 4 (32 bits)
+                                              or Xsize * Ysize * 3 (24 bits)
+                x, y        coordinates of the text relative to the top left
+                            corner of the buffer
+                str         address of the text string in Win-1251 encoding
+                length      number of characters in the string, or -1 if the string
+                            is terminated by zero
+                color       text colour 0x00RRGGBB
+                params      flag parameters:
+                               1   bold
+                               2   italic
+                               4   underlined
+                               8   strike-through
+                              16   apply smoothing
+                              32   output to a 32-bit buffer
+                            the flags may be used in any combination
 ------------------------------------------------------------------------------
-MODULE RasterWorks - обертка библиотеки Rasterworks.obj
+MODULE RasterWorks - wrapper for the Rasterworks.obj library
 ------------------------------------------------------------------------------
-MODULE libimg - обертка библиотеки libimg.obj
+MODULE libimg - wrapper for the libimg.obj library
 ------------------------------------------------------------------------------

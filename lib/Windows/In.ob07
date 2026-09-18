@@ -34,8 +34,13 @@ VAR
     count: INTEGER;
 
 BEGIN
+    (* ReadConsoleA wants a console. With the input redirected to a file, a
+       pipe or NUL it fails and leaves count alone, and the CRLF test below
+       would then index s[-1]. Starting from 0 and testing only when there
+       is a character to test turns that into an empty line. *)
+    count := 0;
     ReadConsoleA(hConsoleInput, SYSTEM.ADR(s[0]), MAX_LEN, SYSTEM.ADR(count), 0);
-    IF (s[count - 1] = 0AX) & (s[count - 2] = 0DX) THEN
+    IF (count > 1) & (s[count - 1] = 0AX) & (s[count - 2] = 0DX) THEN
         DEC(count, 2)
     END;
     s[count] := 0X;

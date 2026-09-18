@@ -1,13 +1,14 @@
 ﻿(*
     BSD 2-Clause License
 
+    Copyright (c) 2026-, DosWorld
     Copyright (c) 2019-2022, Anton Krotov
     All rights reserved.
 *)
 
 MODULE THUMB;
 
-IMPORT PROG, LISTS, CHL := CHUNKLISTS, BIN, REG, IL, C := CONSOLE,
+IMPORT SYSTEM, PROG, CHL := CHUNKLISTS, BIN, REG, IL, C := CONSOLE,
        UTILS, WR := WRITER, HEX, ERRORS, TARGETS;
 
 
@@ -35,57 +36,61 @@ CONST
     CortexM3  = {_THUMB2, _IT, _SDIV, _CBXZ};
     CortexM23 = {_SDIV, _CBXZ};
 
+    (* What a node of the code list stands for. The list holds one kind of
+       record with a kind field rather than a record type per kind, so a walk
+       tells the nodes apart by reading that field: the type tests it used to
+       make cost a call into the runtime for every node of every pass. See
+       NODEBODY. *)
+    tCODE  = 0;
+    tLABEL = 1;
+    tJMP   = 2;
+    tJCC   = 3;
+    tCBXZ  = 4;
+    tCALL  = 5;
+    tRELOC = 6;
+
+    (* Nodes per chunk, and how many chunks the arena can hold. *)
+    SLOTS = 1024;
+    MAXCHUNKS = 1024;
+
 
 TYPE
 
     COMMAND = IL.COMMAND;
 
-    ANYCODE = POINTER TO RECORD (LISTS.ITEM)
+    (* One record type for every node of the list, told apart by its kind, and
+       one pointer to it. The list used to hold a type per node kind - a code
+       word, a label, a jump, a conditional branch, a call, a relocation - and
+       every pass over it had to ask each node what it was. A node of any kind
+       is carved out of a chunk (see NewNode) and the arena hands back its
+       index, so the list is a vector of nodes and a walk is an index running
+       from zero, with no links to follow and no casts to make. *)
+    NODEBODY = RECORD
 
-        offset: INTEGER
-
-    END;
-
-    CODE = POINTER TO RECORD (ANYCODE)
-
-        code: INTEGER
-
-    END;
-
-    LABEL = POINTER TO RECORD (ANYCODE)
-
-        label: INTEGER
-
-    END;
-
-    JUMP = POINTER TO RECORD (ANYCODE)
-
-        label, diff, len, cond: INTEGER;
-        short: BOOLEAN
+        kind:   INTEGER;    (* tCODE ... tRELOC *)
+        offset: INTEGER;    (* where the node begins in the section *)
+        label:  INTEGER;    (* tLABEL: the label's value; tJMP/tJCC/tCBXZ/tCALL: the label aimed at *)
+        diff:   INTEGER;    (* tJMP/tJCC/tCBXZ/tCALL: the signed distance to that label *)
+        len:    INTEGER;    (* tJMP/tJCC/tCBXZ/tCALL: how many bytes the jump takes *)
+        cond:   INTEGER;    (* tJCC/tCBXZ: which condition *)
+        reg:    INTEGER;    (* tCBXZ: the register tested; tRELOC: the register the address is built in *)
+        rel:    INTEGER;    (* tRELOC: which relocation *)
+        value:  INTEGER;    (* tRELOC: the value to relocate; tCODE: the code word *)
+        short:  BOOLEAN     (* tJMP/tJCC/tCBXZ/tCALL: whether a shorter form has been found *)
 
     END;
 
-    JMP = POINTER TO RECORD (JUMP)
+    NODE = POINTER TO NODEBODY;
 
-    END;
+    (* Every node used to be a block of its own on the heap. They are carved
+       out of chunks instead, the way IL carves its commands and X86 its own
+       nodes: a chunk is a single block as far as the heap is concerned and
+       holds SLOTS nodes, so the allocator has far fewer blocks to walk past
+       and far fewer headers to write. The chunks are held in one array and a
+       node is named by its index in it. *)
+    CHUNK = POINTER TO RECORD
 
-    JCC = POINTER TO RECORD (JUMP)
-
-    END;
-
-    CBXZ = POINTER TO RECORD (JUMP)
-
-        reg: INTEGER
-
-    END;
-
-    CALL = POINTER TO RECORD (JUMP)
-
-    END;
-
-    RELOC = POINTER TO RECORD (ANYCODE)
-
-        reg, rel, value: INTEGER
+        node: ARRAY SLOTS OF NODEBODY
 
     END;
 
@@ -102,7 +107,11 @@ VAR
 
     tcount: INTEGER;
 
-    CodeList: LISTS.LIST;
+    (* The code list: the chunks handed out, in order, how many of them there
+       are, and how many nodes they hold between them. *)
+    chunks:  ARRAY MAXCHUNKS OF CHUNK;
+    nchunks: INTEGER;
+    ncount:  INTEGER;
 
     program: BIN.PROGRAM;
 
@@ -121,93 +130,178 @@ VAR
     sdivProc, trap, genTrap, entry, emptyProc, int0, genInt: INTEGER;
 
 
-PROCEDURE Code (code: INTEGER);
+(* Where a node is. The chunks are uniform, so its index alone says it: the
+   chunk is the index divided by the slots in one, the slot the remainder. *)
+PROCEDURE NodeAddr (i: INTEGER): INTEGER;
+BEGIN
+    RETURN SYSTEM.ADR(chunks[i DIV SLOTS].node[i MOD SLOTS])
+END NodeAddr;
+
+
+PROCEDURE NodeAt (i: INTEGER): NODE;
 VAR
-    c: CODE;
+    adr: INTEGER;
 
 BEGIN
-    NEW(c);
-    c.code := code;
-    LISTS.push(CodeList, c)
+    adr := NodeAddr(i);
+
+    RETURN SYSTEM.VAL(NODE, adr)
+END NodeAt;
+
+
+(* How many of a chunk's slots hold a node. Every chunk but the last is full. *)
+PROCEDURE Used (i: INTEGER): INTEGER;
+VAR
+    res: INTEGER;
+
+BEGIN
+    IF i = nchunks - 1 THEN
+        res := ncount - i * SLOTS
+    ELSE
+        res := SLOTS
+    END;
+
+    RETURN res
+END Used;
+
+
+(* Make room for one more node at the end of the list. *)
+PROCEDURE Grow;
+BEGIN
+    IF (nchunks = 0) OR (Used(nchunks - 1) = SLOTS) THEN
+        ASSERT(nchunks < MAXCHUNKS);
+        NEW(chunks[nchunks]);
+        INC(nchunks)
+    END
+END Grow;
+
+
+(* A node of the given kind with nothing else in it. The kinds share one record,
+   so the fields another kind uses have to be cleared here. *)
+PROCEDURE InitNode (n: NODE; kind: INTEGER);
+BEGIN
+    n.kind   := kind;
+    n.offset := 0;
+    n.label  := 0;
+    n.diff   := 0;
+    n.len    := 0;
+    n.cond   := 0;
+    n.reg    := 0;
+    n.rel    := 0;
+    n.value  := 0;
+    n.short  := FALSE
+END InitNode;
+
+
+(* A fresh node of the given kind, at the end of the list. *)
+PROCEDURE NewNode (kind: INTEGER): NODE;
+VAR
+    n: NODE;
+
+BEGIN
+    Grow;
+    n := NodeAt(ncount);
+    InitNode(n, kind);
+    INC(ncount);
+
+    RETURN n
+END NewNode;
+
+
+(* Throw the whole list away and give its memory back. *)
+PROCEDURE FreeNodes;
+VAR
+    i: INTEGER;
+
+BEGIN
+    FOR i := 0 TO nchunks - 1 DO
+        DISPOSE(chunks[i])
+    END;
+    nchunks := 0;
+    ncount := 0
+END FreeNodes;
+
+
+PROCEDURE Code (code: INTEGER);
+VAR
+    n: NODE;
+
+BEGIN
+    n := NewNode(tCODE);
+    n.value := code
 END Code;
 
 
 PROCEDURE Label (label: INTEGER);
 VAR
-    L: LABEL;
+    n: NODE;
 
 BEGIN
-    NEW(L);
-    L.label := label;
-    LISTS.push(CodeList, L)
+    n := NewNode(tLABEL);
+    n.label := label
 END Label;
 
 
 PROCEDURE jcc (cond, label: INTEGER);
 VAR
-    j: JCC;
+    n: NODE;
 
 BEGIN
-    NEW(j);
-    j.label := label;
-    j.cond  := cond;
-    j.short := FALSE;
-    j.len   := 3;
-    LISTS.push(CodeList, j)
+    n := NewNode(tJCC);
+    n.label := label;
+    n.cond  := cond;
+    n.short := FALSE;
+    n.len   := 3
 END jcc;
 
 
 PROCEDURE cbxz (cond, reg, label: INTEGER);
 VAR
-    j: CBXZ;
+    n: NODE;
 
 BEGIN
-    NEW(j);
-    j.label := label;
-    j.cond  := cond;
-    j.reg   := reg;
-    j.short := FALSE;
-    j.len   := 4;
-    LISTS.push(CodeList, j)
+    n := NewNode(tCBXZ);
+    n.label := label;
+    n.cond  := cond;
+    n.reg   := reg;
+    n.short := FALSE;
+    n.len   := 4
 END cbxz;
 
 
 PROCEDURE jmp (label: INTEGER);
 VAR
-    j: JMP;
+    n: NODE;
 
 BEGIN
-    NEW(j);
-    j.label := label;
-    j.short := FALSE;
-    j.len   := 2;
-    LISTS.push(CodeList, j)
+    n := NewNode(tJMP);
+    n.label := label;
+    n.short := FALSE;
+    n.len   := 2
 END jmp;
 
 
 PROCEDURE call (label: INTEGER);
 VAR
-    c: CALL;
+    n: NODE;
 
 BEGIN
-    NEW(c);
-    c.label := label;
-    c.short := FALSE;
-    c.len   := 2;
-    LISTS.push(CodeList, c)
+    n := NewNode(tCALL);
+    n.label := label;
+    n.short := FALSE;
+    n.len   := 2
 END call;
 
 
 PROCEDURE reloc (reg, rel, value: INTEGER);
 VAR
-    r: RELOC;
+    n: NODE;
 
 BEGIN
-    NEW(r);
-    r.reg := reg;
-    r.rel := rel;
-    r.value := value;
-    LISTS.push(CodeList, r)
+    n := NewNode(tRELOC);
+    n.reg := reg;
+    n.rel := rel;
+    n.value := value
 END reloc;
 
 
@@ -538,12 +632,11 @@ END inv0;
 
 PROCEDURE fixup (CodeAdr, DataAdr, BssAdr: INTEGER);
 VAR
-    code:    ANYCODE;
+    n:       NODE;
     count:   INTEGER;
     shorted: BOOLEAN;
-    jump:    JUMP;
 
-    reloc, i, diff, len: INTEGER;
+    reloc, i, k, diff, len: INTEGER;
 
     RelocCode: RELOCCODE;
 
@@ -605,33 +698,31 @@ VAR
     END genlongjmp;
 
 
-    PROCEDURE genbc (code: JUMP);
+    PROCEDURE genbc (n: NODE);
     BEGIN
-        CASE code.len OF
-        |1: PutCode(genjcc(code.cond, code.diff))
-        |2: PutCode(genjcc(inv0(code.cond), 0));
-            PutCode(genjmp(code.diff))
-        |3: PutCode(genjcc(inv0(code.cond), 1));
-            genlongjmp(code.diff)
+        CASE n.len OF
+        |1: PutCode(genjcc(n.cond, n.diff))
+        |2: PutCode(genjcc(inv0(n.cond), 0));
+            PutCode(genjmp(n.diff))
+        |3: PutCode(genjcc(inv0(n.cond), 1));
+            genlongjmp(n.diff)
         END
     END genbc;
 
 
+    (* The interrupt vector table is made of two code nodes per entry, the low
+       half and the high half of a movw/movt pair, and nothing else is emitted
+       before it, so entry idx is at nodes 2*idx and 2*idx + 1. *)
     PROCEDURE SetIV (idx, label, CodeAdr: INTEGER);
     VAR
-        l, h: LISTS.ITEM;
+        lo, hi: NODE;
 
     BEGIN
-        l := CodeList.first;
-        h := l.next;
-        WHILE idx > 0 DO
-            l := h.next;
-            h := l.next;
-            DEC(idx)
-        END;
+        lo := NodeAt(2 * idx);
+        hi := NodeAt(2 * idx + 1);
         label := BIN.GetLabel(program, label) * 2 + CodeAdr + 1;
-        l(CODE).code := low(label);
-        h(CODE).code := high(label)
+        lo.value := low(label);
+        hi.value := high(label)
     END SetIV;
 
 
@@ -642,42 +733,40 @@ BEGIN
         shorted := FALSE;
         count := 0;
 
-        code := CodeList.first(ANYCODE);
-        WHILE code # NIL DO
-            code.offset := count;
+        FOR i := 0 TO ncount - 1 DO
+            n := NodeAt(i);
+            n.offset := count;
 
-            CASE code OF
-            |CODE:  INC(count)
-            |LABEL: BIN.SetLabel(program, code.label, count)
-            |JUMP:  INC(count, code.len); code.offset := count + ORD(code.short)
-            |RELOC: INC(count, 7 - ORD(_THUMB2 IN Target.InstrSet) * 3 + code.rel MOD 2)
-            END;
-
-            code := code.next(ANYCODE)
+            CASE n.kind OF
+            |tCODE:  INC(count)
+            |tLABEL: BIN.SetLabel(program, n.label, count)
+            |tJMP, tJCC, tCBXZ, tCALL:
+                    INC(count, n.len); n.offset := count + ORD(n.short)
+            |tRELOC: INC(count, 7 - ORD(_THUMB2 IN Target.InstrSet) * 3 + n.rel MOD 2)
+            END
         END;
 
-        code := CodeList.first(ANYCODE);
-        WHILE code # NIL DO
+        FOR i := 0 TO ncount - 1 DO
+            n := NodeAt(i);
 
-            IF code IS JUMP THEN
-                jump := code(JUMP);
-                jump.diff := BIN.GetLabel(program, jump.label) - jump.offset;
-                len := jump.len;
-                diff := jump.diff;
-                CASE jump OF
-                |JMP:
+            IF n.kind IN {tJMP, tJCC, tCBXZ, tCALL} THEN
+                n.diff := BIN.GetLabel(program, n.label) - n.offset;
+                len := n.len;
+                diff := n.diff;
+                CASE n.kind OF
+                |tJMP:
                     IF (len = 2) & srange(diff, 11) THEN
                         len := 1
                     END
 
-                |JCC:
+                |tJCC:
                     CASE len OF
                     |1:
                     |2: IF srange(diff, 8) THEN DEC(len) END
                     |3: IF srange(diff, 11) THEN DEC(len) END
                     END
 
-                |CBXZ:
+                |tCBXZ:
                     CASE len OF
                     |1:
                     |2: IF range(diff, 6) THEN DEC(len) END
@@ -685,17 +774,15 @@ BEGIN
                     |4: IF srange(diff, 11) THEN DEC(len) END
                     END
 
-                |CALL:
+                |tCALL:
 
                 END;
-                IF len # jump.len THEN
-                    jump.len := len;
-                    jump.short := TRUE;
+                IF len # n.len THEN
+                    n.len := len;
+                    n.short := TRUE;
                     shorted := TRUE
                 END
-            END;
-
-            code := code.next(ANYCODE)
+            END
         END
 
     UNTIL ~shorted;
@@ -704,55 +791,53 @@ BEGIN
         SetIV(i, IVT[i], CodeAdr)
     END;
 
-    code := CodeList.first(ANYCODE);
-    WHILE code # NIL DO
+    FOR k := 0 TO ncount - 1 DO
+        n := NodeAt(k);
 
-        CASE code OF
+        CASE n.kind OF
 
-        |CODE:  BIN.PutCode16LE(program, code.code)
+        |tCODE:  BIN.PutCode16LE(program, n.value)
 
-        |LABEL:
+        |tLABEL:
 
-        |JMP:
-                IF code.len = 1 THEN
-                    PutCode(genjmp(code.diff))
+        |tJMP:
+                IF n.len = 1 THEN
+                    PutCode(genjmp(n.diff))
                 ELSE
-                    genlongjmp(code.diff)
+                    genlongjmp(n.diff)
                 END
 
-        |JCC:   genbc(code)
+        |tJCC:   genbc(n)
 
-        |CBXZ:
-                IF code.len > 1 THEN
-                    PutCode(2800H + code.reg * 256); (* cmp code.reg, 0 *)
-                    DEC(code.len);
-                    genbc(code)
+        |tCBXZ:
+                IF n.len > 1 THEN
+                    PutCode(2800H + n.reg * 256); (* cmp n.reg, 0 *)
+                    DEC(n.len);
+                    genbc(n)
                 ELSE
-                    (* cb(n)z code.reg, L *)
-                    PutCode(0B100H + 800H * ORD(code.cond = jne) + 200H * (code.diff DIV 32) + (code.diff MOD 32) * 8 + code.reg)
+                    (* cb(n)z n.reg, L *)
+                    PutCode(0B100H + 800H * ORD(n.cond = jne) + 200H * (n.diff DIV 32) + (n.diff MOD 32) * 8 + n.reg)
                 END
 
-        |CALL:  genlongjmp(code.diff)
+        |tCALL:  genlongjmp(n.diff)
 
-        |RELOC:
-                CASE code.rel OF
-                |BIN.RCODE, BIN.PICCODE: reloc := BIN.GetLabel(program, code.value) * 2 + CodeAdr
-                |BIN.RDATA, BIN.PICDATA: reloc := code.value + DataAdr
-                |BIN.RBSS,  BIN.PICBSS:  reloc := code.value + BssAdr
+        |tRELOC:
+                CASE n.rel OF
+                |BIN.RCODE, BIN.PICCODE: reloc := BIN.GetLabel(program, n.value) * 2 + CodeAdr
+                |BIN.RDATA, BIN.PICDATA: reloc := n.value + DataAdr
+                |BIN.RBSS,  BIN.PICBSS:  reloc := n.value + BssAdr
                 END;
-                IF code.rel IN {BIN.PICCODE, BIN.PICDATA, BIN.PICBSS} THEN
-                    DEC(reloc, CodeAdr + 2 * (code.offset - 3 * ORD(_THUMB2 IN Target.InstrSet) + 9))
+                IF n.rel IN {BIN.PICCODE, BIN.PICDATA, BIN.PICBSS} THEN
+                    DEC(reloc, CodeAdr + 2 * (n.offset - 3 * ORD(_THUMB2 IN Target.InstrSet) + 9))
                 END;
-                genmovimm32(code.reg, reloc, RelocCode);
+                genmovimm32(n.reg, reloc, RelocCode);
                 FOR i := 0 TO 6 - 3 * ORD(_THUMB2 IN Target.InstrSet) DO
                     PutCode(RelocCode[i])
                 END;
-                IF code.rel IN {BIN.PICCODE, BIN.PICDATA, BIN.PICBSS} THEN
-                    PutCode(4478H + code.reg) (* add code.reg, pc *)
+                IF n.rel IN {BIN.PICCODE, BIN.PICDATA, BIN.PICBSS} THEN
+                    PutCode(4478H + n.reg) (* add n.reg, pc *)
                 END
-        END;
-
-        code := code.next(ANYCODE)
+        END
     END
 
 END fixup;
@@ -1070,9 +1155,12 @@ VAR
     a, n, cc, L, L2: INTEGER;
 
 BEGIN
-    cmd := IL.codes.commands.first(COMMAND);
+    cmd := IL.codes.commands;
 
     WHILE cmd # NIL DO
+
+        (* This pass never revisits a command, so everything behind us is dead. *)
+        IL.freeUpTo(cmd);
 
         param1 := cmd.param1;
         param2 := cmd.param2;
@@ -1463,7 +1551,7 @@ BEGIN
 
             drop;
             cc := cond(opcode);
-            next := cmd.next(COMMAND);
+            next := cmd.next;
 
             IF next.opcode = IL.opJNZ THEN
                 jcc(cc, next.param1);
@@ -1502,16 +1590,16 @@ BEGIN
 
         |IL.opADD:
             BinOp(r1, r2);
-            CASE cmd.next(COMMAND).opcode OF
+            CASE cmd.next.opcode OF
             |IL.opLOAD32, IL.opLOADF:
                 gen7(TRUE, FALSE, r2, r1, r1); (* ldr r1, [r1, r2] *)
-                cmd := cmd.next(COMMAND)
+                cmd := cmd.next
             |IL.opLOAD8:
                 gen7(TRUE, TRUE, r2, r1, r1);  (* ldrb r1, [r1, r2] *)
-                cmd := cmd.next(COMMAND)
+                cmd := cmd.next
             |IL.opLOAD16:
                 gen8(TRUE, FALSE, r2, r1, r1); (* ldrh r1, [r1, r2] *)
-                cmd := cmd.next(COMMAND)
+                cmd := cmd.next
             ELSE
                 AddReg(r1, r1, r2)
             END;
@@ -2152,8 +2240,11 @@ BEGIN
 
         END;
 
-        cmd := cmd.next(COMMAND)
+        cmd := cmd.next
     END;
+
+    (* The loop leaves the tail of the list behind. *)
+    IL.freeUpTo(NIL);
 
     ASSERT(R.pushed = 0);
     ASSERT(R.top = -1)
@@ -2367,7 +2458,8 @@ BEGIN
     tcount := CHL.Length(IL.codes.types);
 
     opt := options;
-    CodeList := LISTS.create(NIL);
+
+    FreeNodes;
 
     program := BIN.create(IL.codes.lcount);
 

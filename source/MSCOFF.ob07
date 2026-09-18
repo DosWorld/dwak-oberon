@@ -1,6 +1,7 @@
 ﻿(*
     BSD 2-Clause License
 
+    Copyright (c) 2026-, DosWorld
     Copyright (c) 2018-2020, Anton Krotov
     All rights reserved.
 *)
@@ -281,6 +282,8 @@ BEGIN
             WriteReloc(i * SIZE_OF_DWORD, 4, 6)
         END
     END;
+
+    CHL.Free(ImportTable);
 
     PE32.WriteName("EXPORTS");
     WriteReloc(0, 3, 2);

@@ -1,13 +1,14 @@
 ﻿(*
     BSD 2-Clause License
 
+    Copyright (c) 2026-, DosWorld
     Copyright (c) 2018-2020, 2023, Anton Krotov
     All rights reserved.
 *)
 
 MODULE PE32;
 
-IMPORT BIN, LISTS, UTILS, WR := WRITER, CHL := CHUNKLISTS;
+IMPORT BIN, LISTS, UTILS, WR := WRITER, CHL := CHUNKLISTS, HXSTUB;
 
 
 CONST
@@ -30,8 +31,12 @@ CONST
     SHC_text  = 060000020H;
     SHC_data  = 040000040H;
     SHC_bss   = 0C0000080H;
+    SHC_reloc = 042000040H;
 
     SectionAlignment = 1000H;
+
+    IMAGE_REL_BASED_HIGHLOW = 3;
+    IMAGE_REL_BASED_DIR64   = 10;
 
 
 TYPE
@@ -151,6 +156,8 @@ VAR
     OptionalHeader:  IMAGE_OPTIONAL_HEADER;
 
     msdos:           ARRAY 128 OF BYTE;
+    hxmsdos:         ARRAY 512 OF BYTE;
+    HX:              BOOLEAN;
     SectionHeaders:  ARRAY 16 OF IMAGE_SECTION_HEADER;
     libcnt:          INTEGER;
     SizeOfWord:      INTEGER;
@@ -237,6 +244,72 @@ BEGIN
 END GetImportSize;
 
 
+PROCEDURE BuildReloc* (program: BIN.PROGRAM; textRVA: INTEGER; amd64: BOOLEAN; VAR data: CHL.BYTELIST): INTEGER;
+VAR
+    rel:  BIN.RELOC;
+    rvas: CHL.INTLIST;
+    i, n, rva, page, cnt, j, typ, res: INTEGER;
+
+BEGIN
+    rvas := CHL.CreateIntList();
+
+    rel := program.rel_list.first(BIN.RELOC);
+    WHILE rel # NIL DO
+        IF rel.opcode IN {BIN.RCODE, BIN.RDATA, BIN.RBSS, BIN.RIMP} THEN
+            CHL.PushInt(rvas, textRVA + rel.offset)
+        END;
+        rel := rel.next(BIN.RELOC)
+    END;
+
+    IF amd64 THEN
+        typ := IMAGE_REL_BASED_DIR64
+    ELSE
+        typ := IMAGE_REL_BASED_HIGHLOW
+    END;
+
+    data := CHL.CreateByteList();
+    n := CHL.Length(rvas);
+    i := 0;
+
+    WHILE i < n DO
+        rva  := CHL.GetInt(rvas, i);
+        page := rva - (rva MOD 4096);
+
+        cnt := 0;
+        j := i;
+        WHILE (j < n) & (CHL.GetInt(rvas, j) - (CHL.GetInt(rvas, j) MOD 4096) = page) DO
+            INC(cnt);
+            INC(j)
+        END;
+
+        (* IMAGE_BASE_RELOCATION.VirtualAddress *)
+        CHL.PushByte(data, page MOD 256);
+        CHL.PushByte(data, (page DIV 256) MOD 256);
+        CHL.PushByte(data, (page DIV 65536) MOD 256);
+        CHL.PushByte(data, (page DIV 16777216) MOD 256);
+
+        (* IMAGE_BASE_RELOCATION.SizeOfBlock = 8 + 2 * cnt *)
+        rva := 8 + 2 * cnt;
+        CHL.PushByte(data, rva MOD 256);
+        CHL.PushByte(data, (rva DIV 256) MOD 256);
+        CHL.PushByte(data, (rva DIV 65536) MOD 256);
+        CHL.PushByte(data, (rva DIV 16777216) MOD 256);
+
+        WHILE i < j DO
+            rva := typ * 4096 + (CHL.GetInt(rvas, i) MOD 4096);
+            CHL.PushByte(data, rva MOD 256);
+            CHL.PushByte(data, (rva DIV 256) MOD 256);
+            INC(i)
+        END
+    END;
+
+    res := CHL.Length(data);
+    CHL.Free(rvas);
+
+    RETURN res
+END BuildReloc;
+
+
 PROCEDURE fixup* (program: BIN.PROGRAM; Address: VIRTUAL_ADDR; amd64: BOOLEAN);
 VAR
     reloc: BIN.RELOC;
@@ -254,21 +327,36 @@ BEGIN
 
         offset := reloc.offset;
         L := BIN.get32le(code, offset);
-        delta := delta0 - offset;
 
         CASE reloc.opcode OF
         |BIN.PICDATA:
-            INC(delta, L + Address.Data)
+            delta := delta0 - offset + L + Address.Data
 
         |BIN.PICCODE:
-            INC(delta, BIN.GetLabel(program, L) + Address.Code)
+            delta := delta0 - offset + BIN.GetLabel(program, L) + Address.Code
 
         |BIN.PICBSS:
-            INC(delta, L + Address.Bss)
+            delta := delta0 - offset + L + Address.Bss
 
         |BIN.PICIMP:
             iproc := BIN.GetIProc(program, L);
-            INC(delta, iproc.FirstThunk * SizeOfWord + AdrImp)
+            delta := delta0 - offset + iproc.FirstThunk * SizeOfWord + AdrImp
+
+        |BIN.RCODE:
+            delta := BIN.GetLabel(program, L) + Address.Code
+
+        |BIN.RDATA:
+            delta := L + Address.Data
+
+        |BIN.RBSS:
+            delta := L + Address.Bss
+
+        |BIN.RIMP:
+            iproc := BIN.GetIProc(program, L);
+            delta := iproc.FirstThunk * SizeOfWord + AdrImp
+
+        ELSE
+            delta := delta0 - offset
         END;
         BIN.put32le(code, offset, delta);
 
@@ -351,6 +439,11 @@ END WriteFileHeader;
 PROCEDURE write* (program: BIN.PROGRAM; FileName: ARRAY OF CHAR; console, dll, amd64: BOOLEAN; fa: INTEGER);
 VAR
     i, n, temp: INTEGER;
+    hx: BOOLEAN;    (* HX-DOS executable, i.e. a module started from the DOS command line.
+                       A DLL is loaded, never started, so it gets the standard DOS stub. *)
+    exp: BOOLEAN;   (* the module carries an export directory. Every DLL does; an
+                       EXE does too whenever it exported something, which is how
+                       the HX-DOS runtime lets a DLL it loads reach the heap. *)
 
     Size: RECORD
 
@@ -364,6 +457,7 @@ VAR
 
     _import:      BIN.IMPRT;
     ImportTable:  CHL.INTLIST;
+    RelocData:    CHL.BYTELIST;
 
     ExportDir:  IMAGE_EXPORT_DIRECTORY;
     export:     BIN.EXPRT;
@@ -465,6 +559,9 @@ VAR
 
 
 BEGIN
+    hx := HX & ~dll;
+    exp := dll OR (LISTS.count(program.exp_list) > 0);
+
     IF (fa = 512) OR (fa = 1024) OR (fa = 2048) OR (fa = 4096) THEN
         FileAlignment := fa
     ELSE
@@ -494,7 +591,7 @@ BEGIN
         FileHeader.Machine := 014CX
     END;
 
-    FileHeader.NumberOfSections := WCHR(4 + ORD(dll));
+    FileHeader.NumberOfSections := WCHR(4 + ORD(exp));
 
     FileHeader.TimeDateStamp         :=  UTILS.UnixTime();
     FileHeader.PointerToSymbolTable  :=  0H;
@@ -522,7 +619,11 @@ BEGIN
     OptionalHeader.MinorSubsystemVersion        :=  0X;
     OptionalHeader.Win32VersionValue            :=  0H;
     OptionalHeader.SizeOfImage                  :=  SectionAlignment;
-    OptionalHeader.SizeOfHeaders                :=  MAX(FileAlignment, 1024);
+    IF hx THEN
+        OptionalHeader.SizeOfHeaders := WR.align(LEN(hxmsdos) + 4 + 20 + ORD(FileHeader.SizeOfOptionalHeader) + 6 * 40, FileAlignment)
+    ELSE
+        OptionalHeader.SizeOfHeaders := MAX(FileAlignment, 1024)
+    END;
     OptionalHeader.CheckSum                     :=  0;
     OptionalHeader.Subsystem                    :=  WCHR((2 + ORD(console)) * ORD(~dll));
     OptionalHeader.DllCharacteristics           :=  0040X;
@@ -564,7 +665,9 @@ BEGIN
 
     fixup(program, Address, amd64);
 
-    IF dll THEN
+    Size.Reloc := BuildReloc(program, SectionHeaders[0].VirtualAddress, amd64, RelocData);
+
+    IF exp THEN
         Size.Export := Export(program, SectionHeaders[1].VirtualAddress + program.modname, ExportDir);
 
         InitSection(SectionHeaders[4], ".edata", Size.Export + CHL.Length(program.export), SHC_data);
@@ -573,6 +676,21 @@ BEGIN
 
         OptionalHeader.DataDirectory[0].VirtualAddress := SectionHeaders[4].VirtualAddress;
         OptionalHeader.DataDirectory[0].Size := SectionHeaders[4].VirtualSize
+    END;
+
+    IF Size.Reloc > 0 THEN
+        temp := ORD(FileHeader.NumberOfSections);
+
+        InitSection(SectionHeaders[temp], ".reloc", Size.Reloc, SHC_reloc);
+        SectionHeaders[temp].VirtualAddress := WR.align(
+            SectionHeaders[temp - 1].VirtualAddress + SectionHeaders[temp - 1].VirtualSize, SectionAlignment);
+        SectionHeaders[temp].PointerToRawData :=
+            SectionHeaders[temp - 1].PointerToRawData + SectionHeaders[temp - 1].SizeOfRawData;
+
+        FileHeader.NumberOfSections := WCHR(ORD(FileHeader.NumberOfSections) + 1);
+
+        OptionalHeader.DataDirectory[5].VirtualAddress := SectionHeaders[temp].VirtualAddress;
+        OptionalHeader.DataDirectory[5].Size := SectionHeaders[temp].VirtualSize
     END;
 
     OptionalHeader.DataDirectory[1].VirtualAddress := SectionHeaders[3].VirtualAddress;
@@ -588,15 +706,29 @@ BEGIN
         INC(OptionalHeader.SizeOfImage, WR.align(SectionHeaders[i].VirtualSize, SectionAlignment))
     END;
 
-    n := 0;
-    BIN.InitArray(msdos, n, "4D5A80000100000004001000FFFF000040010000000000004000000000000000");
-    BIN.InitArray(msdos, n, "0000000000000000000000000000000000000000000000000000000080000000");
-    BIN.InitArray(msdos, n, "0E1FBA0E00B409CD21B8014CCD21546869732070726F6772616D2063616E6E6F");
-    BIN.InitArray(msdos, n, "742062652072756E20696E20444F53206D6F64652E0D0A240000000000000000");
+    IF hx THEN
+        FOR i := 0 TO LEN(hxmsdos) - 1 DO
+            hxmsdos[i] := HXSTUB.DPMIST32[i]
+        END;
+        hxmsdos[3CH] := 0;      (* e_lfanew = 512 (0x200) *)
+        hxmsdos[3DH] := 2;
+        hxmsdos[3EH] := 0;
+        hxmsdos[3FH] := 0
+    ELSE
+        n := 0;
+        BIN.InitArray(msdos, n, "4D5A80000100000004001000FFFF000040010000000000004000000000000000");
+        BIN.InitArray(msdos, n, "0000000000000000000000000000000000000000000000000000000080000000");
+        BIN.InitArray(msdos, n, "0E1FBA0E00B409CD21B8014CCD21546869732070726F6772616D2063616E6E6F");
+        BIN.InitArray(msdos, n, "742062652072756E20696E20444F53206D6F64652E0D0A240000000000000000")
+    END;
 
     WR.Create(FileName);
 
-    WR.Write(msdos, LEN(msdos));
+    IF hx THEN
+        WR.Write(hxmsdos, LEN(hxmsdos))
+    ELSE
+        WR.Write(msdos, LEN(msdos))
+    END;
 
     WR.Write(Signature, LEN(Signature));
     WriteFileHeader(FileHeader);
@@ -663,10 +795,12 @@ BEGIN
         END
     END;
 
+    CHL.Free(ImportTable);
+
     CHL.WriteToFile(program._import);
     WR.Padding(FileAlignment);
 
-    IF dll THEN
+    IF exp THEN
 
         INC(ExportDir.AddressOfFunctions,    SectionHeaders[4].VirtualAddress);
         INC(ExportDir.AddressOfNames,        SectionHeaders[4].VirtualAddress);
@@ -694,8 +828,22 @@ BEGIN
         WR.Padding(FileAlignment)
     END;
 
+    IF Size.Reloc > 0 THEN
+        CHL.WriteToFile(RelocData);
+        WR.Padding(FileAlignment)
+    END;
+    CHL.Free(RelocData);
+
     WR.Close
 END write;
+
+
+PROCEDURE writeHX* (program: BIN.PROGRAM; FileName: ARRAY OF CHAR; dll, amd64: BOOLEAN; fa: INTEGER);
+BEGIN
+    HX := TRUE;
+    write(program, FileName, TRUE, dll, amd64, fa);
+    HX := FALSE
+END writeHX;
 
 
 END PE32.

@@ -1,6 +1,7 @@
 ﻿(*
     BSD 2-Clause License
 
+    Copyright (c) 2026-, DosWorld
     Copyright (c) 2018-2021, Anton Krotov
     All rights reserved.
 *)
@@ -250,6 +251,30 @@ END CreateIntList;
 PROCEDURE Length* (list: ANYLIST): INTEGER;
     RETURN list.length
 END Length;
+
+
+(* Release the list and every chunk it holds. The list must not be used after
+   this call. Chunks are unlinked one by one because DISPOSE invalidates the
+   node it is given. *)
+PROCEDURE Free* (list: ANYLIST);
+VAR
+    cur: LISTS.ITEM;
+
+BEGIN
+    IF list # NIL THEN
+        cur := list.first;
+
+        WHILE cur # NIL DO
+            list.first := cur.next;
+            DISPOSE(cur);
+            cur := list.first
+        END;
+
+        list.last   := NIL;
+        list.length := 0;
+        DISPOSE(list)
+    END
+END Free;
 
 
 END CHUNKLISTS.

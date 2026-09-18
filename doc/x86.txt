@@ -1,15 +1,15 @@
-﻿        Компилятор языка программирования Oberon-07/16 для i486
+﻿        Oberon-07/16 programming language compiler for i486
                 Windows/Linux/KolibriOS.
 ------------------------------------------------------------------------------
 
-        Параметры командной строки
+        Command-line options
 
-  Вход - текстовые файлы модулей с расширением ".ob07", кодировка ANSI или
-UTF-8 с BOM-сигнатурой.
-  Выход - испоняемый файл формата PE32, ELF или MENUET01/MSCOFF.
-  Параметры:
-  1) имя главного модуля
-  2) тип приложения
+  Input - text files of modules with the extension ".ob07", encoding ANSI or
+UTF-8 with a BOM signature.
+  Output - an executable file of PE32, ELF or MENUET01/MSCOFF format.
+  Parameters:
+  1) name of the main module
+  2) application type
       "win32con" - Windows console
       "win32gui" - Windows GUI
       "win32dll" - Windows DLL
@@ -18,42 +18,42 @@ UTF-8 с BOM-сигнатурой.
       "kosexe" - KolibriOS
       "kosdll" - KolibriOS DLL
 
-  3) необязательные параметры-ключи
-      -out <file_name> имя результирующего файла; по умолчанию,
-          совпадает с именем главного модуля, но с другим расширением
-          (соответствует типу исполняемого файла)
-      -stk <size> размер стэка в мегабайтах (по умолчанию 2 Мб,
-          допустимо от 1 до 32 Мб)
-      -tab <width> размер табуляции (используется для вычисления координат в
-          исходном коде), по умолчанию - 4
-      -nochk <"ptibcwra"> отключить проверки при выполнении (см. ниже)
-      -lower разрешить ключевые слова и встроенные идентификаторы в
-          нижнем регистре (по умолчанию)
-      -upper только верхний регистр для ключевых слов и встроенных
-          идентификаторов
-      -def <имя> задать символ условной компиляции
-      -ver <major.minor> версия программы (только для kosdll)
-      -uses вывести список импортированных модулей
-      -fa <size> выравнивание секций файла PE32 в байтах, возможные значения:
-          512, 1024, 2048, 4096. По умолчанию - 512
+  3) optional options
+      -out <file_name> name of the resulting file; by default it
+          matches the name of the main module, but with a different
+          extension (corresponding to the executable file type)
+      -stk <size> stack size in megabytes (2 MB by default,
+          values from 1 to 32 MB are allowed)
+      -tab <width> tab size (used to calculate coordinates in the
+          source text), 4 by default
+      -nochk <"ptibcwra"> disable runtime checks (see below)
+      -lower allow keywords and predefined identifiers in
+          lower case (default)
+      -upper upper case only for keywords and predefined
+          identifiers
+      -def <name> define a conditional compilation symbol
+      -ver <major.minor> program version (kosdll only)
+      -uses print the list of imported modules
+      -fa <size> alignment of PE32 file sections in bytes, possible values:
+          512, 1024, 2048, 4096. 512 by default
 
-      параметр -nochk задается в виде строки из символов:
-      "p" - указатели
-      "t" - типы
-      "i" - индексы
-      "b" - неявное приведение INTEGER к BYTE
-      "c" - диапазон аргумента функции CHR
-      "w" - диапазон аргумента функции WCHR
-      "r" - эквивалентно "bcw"
-      "a" - все проверки
+      the -nochk option is given as a string of characters:
+      "p" - pointers
+      "t" - types
+      "i" - indexes
+      "b" - implicit conversion of INTEGER to BYTE
+      "c" - range of the argument of the CHR function
+      "w" - range of the argument of the WCHR function
+      "r" - equivalent to "bcw"
+      "a" - all checks
 
-      Порядок символов может быть любым. Наличие в строке того или иного
-      символа отключает соответствующую проверку.
+      The order of the characters may be arbitrary. The presence of a
+      particular character in the string disables the corresponding check.
 
-      Например: -nochk it - отключить проверку индексов и охрану типа.
-      -nochk a - отключить все отключаемые проверки.
+      For example: -nochk it - disable index checking and type guarding.
+      -nochk a - disable all checks that can be disabled.
 
-  Например:
+  For example:
 
   Compiler.exe "C:\example.ob07" win32con -out "C:\example.exe" -stk 1
   Compiler.exe "C:\example.ob07" win32dll -out "C:\example.dll"
@@ -63,182 +63,187 @@ UTF-8 с BOM-сигнатурой.
   Compiler.kex "/tmp0/1/example.ob07" kosdll -out "/tmp0/1/mydll.obj" -ver 2.7
   Compiler.exe "C:\example.ob07" linux32exe -out "C:\example" -stk 1 -nochk a
 
-  В случае успешной компиляции, компилятор передает код завершения 0, иначе 1.
-При работе компилятора в KolibriOS, код завершения не передается.
+  If compilation succeeds, the compiler returns exit code 0, otherwise 1.
+When the compiler runs under KolibriOS, no exit code is returned.
 
 ------------------------------------------------------------------------------
-        Отличия от оригинала
+        Differences from the original
 
-1.      Расширен псевдомодуль SYSTEM
-2.      В идентификаторах допускается символ "_"
-3.      Добавлены системные флаги
-4.      Усовершенствован оператор CASE (добавлены константные выражения в
-        метках вариантов и необязательная ветка ELSE)
-5.      Расширен набор стандартных процедур
-6.      Семантика охраны/проверки типа уточнена для нулевого указателя
-7.      Добавлены однострочные комментарии (начинаются с пары символов "//")
-8.      Разрешено наследование от типа-указателя
-9.      Добавлен синтаксис для импорта процедур из внешних библиотек
-10.     "Строки" можно заключать также в одиночные кавычки: 'строка'
-11.     Добавлен тип WCHAR
-12.     Добавлена операция конкатенации строковых и символьных констант
-13.     Возможен импорт модулей с указанием пути и имени файла
-14.     Добавлен специальный синтаксис для условной компиляции (см. CC.txt)
-15.     Имя процедуры в конце объявления (после END) необязательно
-16.     Разрешено использовать нижний регистр для ключевых слов
+1.      The pseudo-module SYSTEM has been extended
+2.      The character "_" is allowed in identifiers
+3.      System flags have been added
+4.      The CASE statement has been improved (constant expressions in case
+        labels and an optional ELSE branch have been added)
+5.      The set of standard procedures has been extended
+6.      The semantics of type guarding/testing has been refined for the null
+        pointer
+7.      One-line comments have been added (they start with the pair of
+        characters "//")
+8.      Inheritance from a pointer type is allowed
+9.      Syntax has been added for importing procedures from external libraries
+10.     "Strings" may also be enclosed in single quotes: 'string'
+11.     The type WCHAR has been added
+12.     The operation of concatenating string and character constants has been
+        added
+13.     Modules may be imported with a path and a file name
+14.     Special syntax has been added for conditional compilation (see CC.txt)
+15.     The procedure name at the end of the declaration (after END) is
+        optional
+16.     Lower case is allowed for keywords
 
 ------------------------------------------------------------------------------
-        Особенности реализации
+        Implementation notes
 
-1.      Основные типы
+1.      Basic types
 
-          Тип              Диапазон значений               Размер, байт
+          Type             Range of values                 Size, bytes
 
         INTEGER       -2147483648 .. 2147483647                 4
         REAL          4.94E-324 .. 1.70E+308                    8
-        CHAR          символ ASCII (0X .. 0FFX)                 1
+        CHAR          ASCII character (0X .. 0FFX)              1
         BOOLEAN       FALSE, TRUE                               1
-        SET           множество из целых чисел {0 .. 31}        4
+        SET           set of integers {0 .. 31}                 4
         BYTE          0 .. 255                                  1
-        WCHAR         символ юникода (0X .. 0FFFFX)             2
+        WCHAR         Unicode character (0X .. 0FFFFX)          2
 
-2.      Максимальная длина идентификаторов - 255 символов
-3.      Максимальная длина строковых констант - 511 символов (UTF-8)
-4.      Максимальная размерность открытых массивов - 5
-5.      Процедура NEW заполняет нулями выделенный блок памяти
-6.      Глобальные и локальные переменные инициализируются нулями
-7.      В отличие от многих Oberon-реализаций, сборщик мусора и динамическая
-        модульность отсутствуют
-8.      Тип BYTE в выражениях всегда приводится к INTEGER
-9.      Контроль переполнения значений выражений не производится
-10.     Ошибки времени выполнения:
+2.      Maximum length of identifiers - 255 characters
+3.      Maximum length of string constants - 511 characters (UTF-8)
+4.      Maximum number of dimensions of open arrays - 5
+5.      The procedure NEW fills the allocated memory block with zeros
+6.      Global and local variables are initialized to zeros
+7.      Unlike many Oberon implementations, there is no garbage collector and
+        no dynamic module loading
+8.      In expressions, the type BYTE is always converted to INTEGER
+9.      Overflow of expression values is not checked
+10.     Runtime errors:
 
- 1      ASSERT(x), при x = FALSE
- 2      разыменование нулевого указателя
- 3      целочисленное деление на неположительное число
- 4      вызов процедуры через процедурную переменную с нулевым значением
- 5      ошибка охраны типа
- 6      нарушение границ массива
- 7      непредусмотренное значение выражения в операторе CASE
- 8      ошибка копирования массивов v := x, если LEN(v) < LEN(x)
- 9      CHR(x), если (x < 0) OR (x > 255)
-10      WCHR(x), если (x < 0) OR (x > 65535)
-11      неявное приведение x:INTEGER к v:BYTE, если (x < 0) OR (x > 255)
+ 1      ASSERT(x), if x = FALSE
+ 2      dereference of the null pointer
+ 3      integer division by a non-positive number
+ 4      call of a procedure through a procedure variable with a null value
+ 5      type guard error
+ 6      array bounds violation
+ 7      unhandled expression value in a CASE statement
+ 8      array copy error v := x, if LEN(v) < LEN(x)
+ 9      CHR(x), if (x < 0) OR (x > 255)
+10      WCHR(x), if (x < 0) OR (x > 65535)
+11      implicit conversion of x:INTEGER to v:BYTE, if (x < 0) OR (x > 255)
 
 ------------------------------------------------------------------------------
-        Псевдомодуль SYSTEM
+        The pseudo-module SYSTEM
 
-  Псевдомодуль SYSTEM содержит низкоуровневые и небезопасные процедуры,
-ошибки при использовании процедур псевдомодуля SYSTEM могут привести к
-повреждению данных времени выполнения и аварийному завершению программы.
+  The pseudo-module SYSTEM contains low-level and unsafe procedures; errors
+made when using procedures of the pseudo-module SYSTEM may lead to corruption
+of runtime data and abnormal termination of the program.
 
-        PROCEDURE ADR(v: любой тип): INTEGER
-                v - переменная или процедура;
-                возвращает адрес v
+        PROCEDURE ADR(v: any type): INTEGER
+                v - a variable or a procedure;
+                returns the address of v
 
-        PROCEDURE SADR(x: строковая константа (CHAR UTF-8)): INTEGER
-                возвращает адрес x
+        PROCEDURE SADR(x: string constant (CHAR UTF-8)): INTEGER
+                returns the address of x
 
-        PROCEDURE WSADR(x: строковая константа (WCHAR)): INTEGER
-                возвращает адрес x
+        PROCEDURE WSADR(x: string constant (WCHAR)): INTEGER
+                returns the address of x
 
-        PROCEDURE VAL(T; v: любой тип): T
-                v - переменная;
-                интерпретирует v, как переменную типа T
+        PROCEDURE VAL(T; v: any type): T
+                v - a variable;
+                interprets v as a variable of type T
 
         PROCEDURE SIZE(T): INTEGER
-                возвращает размер типа T
+                returns the size of type T
 
         PROCEDURE TYPEID(T): INTEGER
-                T - тип-запись или тип-указатель,
-                возвращает номер типа в таблице типов-записей
+                T - a record type or a pointer type,
+                returns the type number in the table of record types
 
         PROCEDURE INF(): REAL
-                возвращает специальное вещественное значение "бесконечность"
+                returns the special real value "infinity"
 
         PROCEDURE MOVE(Source, Dest, n: INTEGER)
-                Копирует n байт памяти из Source в Dest,
-                области Source и Dest не могут перекрываться
+                Copies n bytes of memory from Source to Dest,
+                the areas Source and Dest must not overlap
 
         PROCEDURE GET(a: INTEGER;
-                VAR v: любой основной тип, PROCEDURE, POINTER)
-                v := Память[a]
+                VAR v: any basic type, PROCEDURE, POINTER)
+                v := Memory[a]
 
         PROCEDURE GET8(a: INTEGER;
                        VAR x: INTEGER, SET, BYTE, CHAR, WCHAR, SYSTEM.CARD32)
-                Эквивалентно
+                Equivalent to
                 SYSTEM.MOVE(a, SYSTEM.ADR(x), 1)
 
         PROCEDURE GET16(a: INTEGER;
                         VAR x: INTEGER, SET, WCHAR, SYSTEM.CARD32)
-                Эквивалентно
+                Equivalent to
                 SYSTEM.MOVE(a, SYSTEM.ADR(x), 2)
 
         PROCEDURE GET32(a: INTEGER; VAR x: INTEGER, SET, SYSTEM.CARD32)
-                Эквивалентно
+                Equivalent to
                 SYSTEM.MOVE(a, SYSTEM.ADR(x), 4)
 
-        PROCEDURE PUT(a: INTEGER; x: любой основной тип, PROCEDURE, POINTER)
-                Память[a] := x;
-                Если x: BYTE или x: WCHAR, то значение x будет расширено
-                до 32 бит, для записи байтов использовать SYSTEM.PUT8,
-                для WCHAR -- SYSTEM.PUT16
+        PROCEDURE PUT(a: INTEGER; x: any basic type, PROCEDURE, POINTER)
+                Memory[a] := x;
+                If x: BYTE or x: WCHAR, the value of x is extended
+                to 32 bits; use SYSTEM.PUT8 to write bytes,
+                and SYSTEM.PUT16 for WCHAR
 
         PROCEDURE PUT8(a: INTEGER;
                        x: INTEGER, SET, BYTE, CHAR, WCHAR, SYSTEM.CARD32)
-                Память[a] := младшие 8 бит (x)
+                Memory[a] := the low 8 bits of (x)
 
         PROCEDURE PUT16(a: INTEGER;
                         x: INTEGER, SET, BYTE, CHAR, WCHAR, SYSTEM.CARD32)
-                Память[a] := младшие 16 бит (x)
+                Memory[a] := the low 16 bits of (x)
 
         PROCEDURE PUT32(a: INTEGER;
                         x: INTEGER, SET, BYTE, CHAR, WCHAR, SYSTEM.CARD32)
-                Память[a] := младшие 32 бит (x)
+                Memory[a] := the low 32 bits of (x)
 
-        PROCEDURE COPY(VAR Source: любой тип; VAR Dest: любой тип; n: INTEGER)
-                Копирует n байт памяти из Source в Dest.
-                Эквивалентно
+        PROCEDURE COPY(VAR Source: any type; VAR Dest: any type; n: INTEGER)
+                Copies n bytes of memory from Source to Dest.
+                Equivalent to
                 SYSTEM.MOVE(SYSTEM.ADR(Source), SYSTEM.ADR(Dest), n)
 
         PROCEDURE CODE(byte1, byte2,... : INTEGER)
-                Вставка машинного кода,
-                byte1, byte2 ... - константы в диапазоне 0..255,
-                например:
+                Insertion of machine code,
+                byte1, byte2 ... - constants in the range 0..255,
+                for example:
                 SYSTEM.CODE(08BH, 045H, 008H) (* mov eax, dword [ebp + 08h] *)
 
-  Также, в модуле SYSTEM определен тип CARD32 (4 байта). Для типа CARD32 не
-допускаются никакие явные операции, за исключением присваивания.
+  The module SYSTEM also defines the type CARD32 (4 bytes). No explicit
+operations are allowed for the type CARD32, except for assignment.
 
-  Функции псевдомодуля SYSTEM нельзя использовать в константных выражениях.
+  The functions of the pseudo-module SYSTEM cannot be used in constant
+expressions.
 
 ------------------------------------------------------------------------------
-        Системные флаги
+        System flags
 
-  При объявлении процедурных типов и глобальных процедур, после ключевого
-слова PROCEDURE может быть указан флаг соглашения о вызове: [stdcall],
-[cdecl], [fastcall], [ccall], [windows], [linux], [oberon]. Например:
+  When declaring procedure types and global procedures, a calling convention
+flag may be specified after the keyword PROCEDURE: [stdcall], [cdecl],
+[fastcall], [ccall], [windows], [linux], [oberon]. For example:
 
         PROCEDURE [ccall] MyProc (x, y, z: INTEGER): INTEGER;
 
-  Если указан флаг [ccall], то принимается соглашение cdecl, но перед
-вызовом указатель стэка будет выравнен по границе 16 байт.
-  Флаг [windows] - синоним для [stdcall], [linux] - синоним для [ccall].
-  Знак "-" после имени флага ([stdcall-], [linux-], ...) означает, что
-результат процедуры можно игнорировать (не допускается для типа REAL).
-  Если флаг не указан или указан флаг [oberon], то принимается внутреннее
-соглашение о вызове.
+  If the flag [ccall] is specified, the cdecl convention is adopted, but
+before the call the stack pointer is aligned to a 16-byte boundary.
+  The flag [windows] is a synonym for [stdcall], [linux] is a synonym for
+[ccall]. A "-" after the flag name ([stdcall-], [linux-], ...) means that the
+result of the procedure may be ignored (not allowed for the type REAL).
+  If no flag is specified, or the flag [oberon] is specified, the internal
+calling convention is adopted.
 
-  При объявлении типов-записей, после ключевого слова RECORD может быть
-указан флаг [noalign]. Флаг [noalign] означает отсутствие выравнивания полей
-записи. Записи с системным флагом не могут иметь базовый тип и не могут быть
-базовыми типами для других записей.
-  Для использования системных флагов, требуется импортировать SYSTEM.
+  When declaring record types, the flag [noalign] may be specified after the
+keyword RECORD. The flag [noalign] means that the fields of the record are not
+aligned. Records with a system flag cannot have a base type and cannot be base
+types for other records.
+  To use system flags, SYSTEM must be imported.
 
 ------------------------------------------------------------------------------
-        Оператор CASE
+        The CASE statement
 
-  Синтаксис оператора CASE:
+  Syntax of the CASE statement:
 
         CaseStatement =
                 CASE Expression OF Case {"|" Case}
@@ -247,7 +252,7 @@ UTF-8 с BOM-сигнатурой.
         CaseLabelList = CaseLabels {"," CaseLabels}.
         CaseLabels = ConstExpression [".." ConstExpression].
 
-  Например:
+  For example:
 
         CASE x OF
         |-1:    DoSomething1
@@ -257,169 +262,172 @@ UTF-8 с BOM-сигнатурой.
                 DoSomething4
         END
 
-  В метках вариантов можно использовать константные выражения, ветка ELSE
-необязательна. Если значение x не соответствует ни одному варианту и ELSE
-отсутствует, то программа прерывается с ошибкой времени выполнения.
+  Constant expressions may be used in case labels, and the ELSE branch is
+optional. If the value of x matches none of the variants and there is no ELSE,
+the program is terminated with a runtime error.
 
 ------------------------------------------------------------------------------
-        Тип WCHAR
+        The WCHAR type
 
-  Тип WCHAR добавлен в язык для удобной поддежки юникода. Для типов WCHAR и
-ARRAY OF WCHAR допускаются все те же операции, как для типов CHAR и
-ARRAY OF CHAR, за исключением встроенной процедуры CHR, которая возвращает
-только тип CHAR. Для получения значения типа WCHAR, следует использовать
-процедуру WCHR вместо CHR. Для правильной работы с типом, необходимо сохранять
-исходный код в кодировке UTF-8 с BOM.
+  The type WCHAR has been added to the language for convenient Unicode support.
+For the types WCHAR and ARRAY OF WCHAR, all the same operations are allowed as
+for the types CHAR and ARRAY OF CHAR, with the exception of the predefined
+procedure CHR, which returns only the type CHAR. To obtain a value of type
+WCHAR, the procedure WCHR should be used instead of CHR. For correct handling
+of the type, the source text must be saved in UTF-8 encoding with BOM.
 
 ------------------------------------------------------------------------------
-        Конкатенация строковых и символьных констант
+        Concatenation of string and character constants
 
-  Допускается конкатенация ("+") константных строк и символов типа CHAR:
+  Concatenation ("+") of constant strings and characters of type CHAR is
+allowed:
 
   str = CHR(39) + "string" + CHR(39); (* str = "'string'" *)
 
   newline = 0DX + 0AX;
 
 ------------------------------------------------------------------------------
-        Проверка и охрана типа нулевого указателя
+        Type test and type guard for the null pointer
 
-  Оригинальное сообщение о языке не определяет поведение программы при
-выполнении охраны p(T) и проверки типа p IS T при p = NIL. Во многих
-Oberon-реализациях выполнение такой операции приводит к ошибке времени
-выполнения. В данной реализации охрана типа нулевого указателя не приводит к
-ошибке, а проверка типа дает результат FALSE. В ряде случаев это позволяет
-значительно сократить частоту применения охраны типа.
+  The original language report does not define the behavior of a program when
+the type guard p(T) and the type test p IS T are performed with p = NIL. In
+many Oberon implementations, performing such an operation leads to a runtime
+error. In this implementation, a type guard of the null pointer does not lead
+to an error, and the type test yields FALSE. In a number of cases this makes it
+possible to reduce the use of type guards considerably.
 
 ------------------------------------------------------------------------------
-        Дополнительные стандартные процедуры
+        Additional standard procedures
 
-        DISPOSE (VAR v: любой_указатель)
-                Освобождает память, выделенную процедурой NEW для
-                динамической переменной v^, и присваивает переменной v
-                значение NIL.
+        DISPOSE (VAR v: any pointer)
+                Frees the memory allocated by the procedure NEW for the
+                dynamic variable v^, and assigns the value NIL to the
+                variable v.
 
         COPY (x: ARRAY OF CHAR/WCHAR; VAR v: ARRAY OF CHAR/WCHAR);
                 v := x;
-                Если LEN(v) < LEN(x), то строка x будет скопирована
-                не полностью
+                If LEN(v) < LEN(x), the string x is copied
+                incompletely
 
         LSR (x, n: INTEGER): INTEGER
-                Логический сдвиг x на n бит вправо.
+                Logical shift of x to the right by n bits.
 
         MIN (a, b: INTEGER): INTEGER
-                Минимум из двух значений.
+                Minimum of two values.
 
         MAX (a, b: INTEGER): INTEGER
-                Максимум из двух значений.
+                Maximum of two values.
 
         BITS (x: INTEGER): SET
-                Интерпретирует x как значение типа SET.
-                Выполняется на этапе компиляции.
+                Interprets x as a value of type SET.
+                Performed at compile time.
 
         LENGTH (s: ARRAY OF CHAR/WCHAR): INTEGER
-                Длина 0X-завершенной строки s, без учета символа 0X.
-                Если символ 0X отсутствует, функция возвращает длину
-                массива s. s не может быть константой.
+                Length of the 0X-terminated string s, not counting the
+                character 0X. If the character 0X is absent, the function
+                returns the length of the array s. s cannot be a constant.
 
         WCHR (n: INTEGER): WCHAR
-                Преобразование типа, аналогично CHR(n: INTEGER): CHAR
+                Type conversion, similar to CHR(n: INTEGER): CHAR
 
 ------------------------------------------------------------------------------
-        Импорт модулей с указанием пути и имени файла
+        Importing modules with a path and a file name
 
-Примеры:
+Examples:
 
-    IMPORT Math IN "./lib/math.ob07"; (* относительно текущего модуля *)
+    IMPORT Math IN "./lib/math.ob07"; (* relative to the current module *)
 
-    IMPORT M1 IN "C:\lib\math.ob07"; (* абсолютный путь *)
+    IMPORT M1 IN "C:\lib\math.ob07"; (* absolute path *)
 
 ------------------------------------------------------------------------------
-        Импортированные процедуры
+        Imported procedures
 
-  Синтаксис импорта:
+  Import syntax:
 
   PROCEDURE [callconv, library, function] proc_name (FormalParam): Type;
 
-  - callconv -- соглашение о вызове
-  - library -- имя файла динамической библиотеки (строковая константа)
-  - function -- имя импортируемой процедуры (строковая константа), если
-  указана пустая строка, то имя процедуры = proc_name
+  - callconv -- calling convention
+  - library -- name of the dynamic library file (string constant)
+  - function -- name of the imported procedure (string constant); if an empty
+  string is specified, the procedure name = proc_name
 
-  например:
+  for example:
 
   PROCEDURE [windows, "kernel32.dll", ""] ExitProcess (code: INTEGER);
 
   PROCEDURE [stdcall, "Console.obj", "con_exit"] exit (bCloseWindow: BOOLEAN);
 
-  В конце объявления может быть добавлено (необязательно) "END proc_name;"
+  An (optional) "END proc_name;" may be added at the end of the declaration
 
-  Объявления импортированных процедур должны располагаться в глобальной
-  области видимости модуля после объявления переменных, вместе с объявлением
-  "обычных" процедур, от которых импортированные отличаются только отсутствием
-  тела процедуры. В остальном, к таким процедурам применимы те же правила:
-  их можно вызвать, присвоить процедурной переменной или получить адрес.
+  Declarations of imported procedures must be located in the global scope of
+  the module after the variable declarations, together with the declarations
+  of "ordinary" procedures, from which imported ones differ only by the absence
+  of a procedure body. Otherwise the same rules apply to such procedures:
+  they can be called, assigned to a procedure variable, or their address can be
+  obtained.
 
-  Так как импортированная процедура всегда имеет явное указание соглашения о
-  вызове, то совместимый процедурный тип тоже должен быть объявлен с указанием
-  соглашения о вызове:
+  Since an imported procedure always has an explicit calling convention, a
+  compatible procedure type must also be declared with an explicit calling
+  convention:
 
   VAR
       ExitProcess: PROCEDURE [windows] (code: INTEGER);
       con_exit:    PROCEDURE [stdcall] (bCloseWindow: BOOLEAN);
 
-  В KolibriOS импортировать процедуры можно только из библиотек, размещенных
-  в /sys/lib. Импортировать и вызывать функции инициализации библиотек
-  (lib_init, START) при этом не нужно.
+  In KolibriOS, procedures can be imported only from libraries located
+  in /sys/lib. It is not necessary to import and call the library
+  initialization functions (lib_init, START).
 
-  Для Linux, импортированные процедуры не реализованы.
+  For Linux, imported procedures are not implemented.
 
 ------------------------------------------------------------------------------
-        Скрытые параметры процедур
+        Hidden procedure parameters
 
-  Некоторые процедуры могут иметь скрытые параметры, они отсутствуют в списке
-формальных параметров, но учитываются компилятором при трансляции вызовов.
-Это возможно в следующих случаях:
+  Some procedures may have hidden parameters; they are absent from the list of
+formal parameters, but are taken into account by the compiler when translating
+calls. This is possible in the following cases:
 
-1.      Процедура имеет формальный параметр открытый массив:
+1.      The procedure has a formal parameter that is an open array:
                 PROCEDURE Proc (x: ARRAY OF ARRAY OF REAL);
-        Вызов транслируется так:
+        The call is translated as:
                 Proc(LEN(x), LEN(x[0]), SYSTEM.ADR(x))
-2.      Процедура имеет формальный параметр-переменную типа RECORD:
+2.      The procedure has a formal variable parameter of type RECORD:
                 PROCEDURE Proc (VAR x: Rec);
-        Вызов транслируется так:
+        The call is translated as:
                 Proc(SYSTEM.TYPEID(Rec), SYSTEM.ADR(x))
 
-  Скрытые параметры необходимо учитывать при связи с внешними приложениями.
+  Hidden parameters must be taken into account when interfacing with external
+applications.
 
 ------------------------------------------------------------------------------
-        Модуль RTL
+        The RTL module
 
-  Все программы неявно используют модуль RTL. Компилятор транслирует
-некоторые операции (проверка и охрана типа, сравнение строк, сообщения об
-ошибках времени выполнения и др.) как вызовы процедур этого модуля. Не
-следует вызывать эти процедуры явно.
-  Сообщения об ошибках времени выполнения выводятся в диалоговых окнах
-(Windows), в терминал (Linux), на доску отладки (KolibriOS).
-
-------------------------------------------------------------------------------
-        Модуль API
-
-  Существуют несколько реализаций модуля API (для различных ОС).
-  Как и модуль RTL, модуль API не предназначен для прямого использования.
-Он обеспечивает связь RTL с ОС.
+  All programs implicitly use the module RTL. The compiler translates some
+operations (type test and type guard, string comparison, runtime error messages
+and others) as calls to procedures of this module. These procedures should not
+be called explicitly.
+  Runtime error messages are output in dialog boxes (Windows), to the terminal
+(Linux), to the debug board (KolibriOS).
 
 ------------------------------------------------------------------------------
-        Генерация исполняемых файлов DLL
+        The API module
 
-  Разрешается экспортировать только процедуры. Для этого, процедура должна
-находиться в главном модуле программы, и ее имя должно быть отмечено символом
-экспорта ("*"). Нельзя экспортировать процедуры, которые импортированы из
-других dll-библиотек.
+  There are several implementations of the module API (for different OSes).
+  Like the module RTL, the module API is not intended for direct use. It
+provides the interface between RTL and the OS.
 
-  KolibriOS DLL всегда экспортируют идентификаторы "version" (версия
-программы) и "lib_init" - адрес процедуры инициализации DLL:
+------------------------------------------------------------------------------
+        Generation of DLL executable files
+
+  Only procedures may be exported. For this, the procedure must be located in
+the main module of the program, and its name must be marked with the export
+symbol ("*"). Procedures that are imported from other dll libraries cannot be
+exported.
+
+  KolibriOS DLLs always export the identifiers "version" (program version) and
+"lib_init" - the address of the DLL initialization procedure:
 
         PROCEDURE [stdcall] lib_init (): INTEGER
 
-Эта процедура должна быть вызвана перед использованием DLL.
-Процедура всегда возвращает 1.
+This procedure must be called before using the DLL.
+The procedure always returns 1.

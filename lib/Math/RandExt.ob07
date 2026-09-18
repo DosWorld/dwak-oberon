@@ -1,7 +1,4 @@
 ﻿(* ************************************************************
-   Дополнительные алгоритмы генераторов какбыслучайных чисел.
-   Вадим Исаев, 2020
-
    Additional generators of pseudorandom numbers.
    Vadim Isaev, 2020
    ************************************************************ *)
@@ -11,7 +8,7 @@ MODULE RandExt;
 IMPORT HOST, MathRound, MathBits;
 
 CONST
-  (* Для алгоритма Мерсена-Твистера *)
+  (* For the Mersenne Twister algorithm *)
   N          = 624;
   M          = 397;
   MATRIX_A   = 9908B0DFH;  (* constant vector a *)
@@ -21,39 +18,39 @@ CONST
 
 
 TYPE
-(* структура служебных данных, для алгоритма mrg32k3a *)
+(* data structure for the mrg32k3a algorithm *)
   random_t = RECORD
     mrg32k3a_seed       : REAL;
     mrg32k3a_x          : ARRAY 3 OF REAL;
     mrg32k3a_y          : ARRAY 3 OF REAL
   END;
 
-  (* Для алгоритма Мерсена-Твистера *)
+  (* For the Mersenne Twister algorithm *)
   MTKeyArray = ARRAY N OF INTEGER;
 
 VAR
-  (* Для алгоритма mrg32k3a *)
+  (* For the mrg32k3a algorithm *)
   prndl: random_t;
-  (* Для алгоритма Мерсена-Твистера *)
+  (* For the Mersenne Twister algorithm *)
   mt  : MTKeyArray;  (* the array for the state vector *)
   mti : INTEGER;     (* mti == N+1 means mt[N] is not initialized *)
 
 (* ---------------------------------------------------------------------------
-   Генератор какбыслучайных чисел в диапазоне [a,b].
-   Алгоритм 133б из книги "Агеев и др. - Бибилотека алгоритмов 101б-150б",
-   стр. 53.
-   Переделка из Algol на Oberon и доработка, Вадим Исаев, 2020
+   Generator of pseudorandom numbers in the range [a,b].
+   Algorithm 133b from the book "Ageev et al. - Library of algorithms 101b-150b",
+   page 53.
+   Converted from Algol to Oberon and revised, Vadim Isayev, 2020
 
    Generator pseudorandom numbers, algorithm 133b from
    Comm ACM 5,10 (Oct 1962) 553.
    Convert from Algol to Oberon Vadim Isaev, 2020.
 
-   Входные параметры:
-     a - начальное вычисляемое значение, тип REAL;
-     b - конечное вычисляемое значение, тип REAL;
-     seed - начальное значение для генерации случайного числа.
-            Должно быть в диапазоне от 10 000 000 000 до 34 359 738 368 (2^35),
-            нечётное.
+   Input parameters:
+     a - initial computed value, type REAL;
+     b - final computed value, type REAL;
+     seed - initial value for random number generation.
+            It must be in the range from 10 000 000 000 to 34 359 738 368 (2^35),
+            and it must be odd.
    --------------------------------------------------------------------------- *)
 PROCEDURE alg133b* (a, b: REAL; VAR seed: INTEGER): REAL;
 CONST
@@ -87,23 +84,17 @@ BEGIN
 END alg133b;
 
 (* ----------------------------------------------------------
-   Генератор почти равномерно распределённых
-   какбыслучайных чисел mrg32k3a
-   (Combined Multiple Recursive Generator) от 0 до 1.
-   Период повторения последовательности = 2^127
-
    Generator pseudorandom numbers,
    algorithm mrg32k3a.
 
-   Переделка из FreePascal на Oberon, Вадим Исаев, 2020
    Convert from FreePascal to Oberon, Vadim Isaev, 2020
    ---------------------------------------------------------- *)
-(* Инициализация генератора.
+(* Initialization of the generator.
 
-   Входные параметры:
-     seed  - значение для инициализации. Любое. Если передать
-             ноль, то вместо ноля будет подставлено кол-во
-             процессорных тиков. *)
+   Input parameters:
+     seed  - value for initialization. Any value. If zero is passed,
+             then the number of processor ticks is substituted
+             instead of zero. *)
 PROCEDURE mrg32k3a_init* (seed: REAL);
 BEGIN
   prndl.mrg32k3a_x[0] := 1.0;
@@ -120,7 +111,7 @@ BEGIN
 
 END mrg32k3a_init;
 
-(* Генератор какбыслучайных чисел от 0.0 до 1.0. *)
+(* Generator of pseudorandom numbers from 0.0 to 1.0. *)
 PROCEDURE mrg32k3a* (): REAL;
 
 CONST
@@ -139,7 +130,7 @@ VAR
   xn, yn, result: REAL;
 
 BEGIN
-  (* Часть 1 *)
+  (* Part 1 *)
   xn := MRG32K3A_A12 * prndl.mrg32k3a_x[1] - MRG32K3A_A13 * prndl.mrg32k3a_x[2];
   xn := xn - MathRound.trunc(xn / MRG32K3A_M1) * MRG32K3A_M1;
   IF xn < 0.0 THEN
@@ -150,7 +141,7 @@ BEGIN
   prndl.mrg32k3a_x[1] := prndl.mrg32k3a_x[0];
   prndl.mrg32k3a_x[0] := xn;
 
-  (* Часть 2 *)
+  (* Part 2 *)
   yn := MRG32K3A_A21 * prndl.mrg32k3a_y[0] - MRG32K3A_A23 * prndl.mrg32k3a_y[2];
   yn := yn - MathRound.trunc(yn / MRG32K3A_M2) * MRG32K3A_M2;
   IF yn < 0.0 THEN
@@ -161,7 +152,7 @@ BEGIN
   prndl.mrg32k3a_y[1] := prndl.mrg32k3a_y[0];
   prndl.mrg32k3a_y[0] := yn;
 
-  (* Смешение частей *)
+  (* Combining the parts *)
   IF xn <= yn THEN
     result := ((xn - yn + MRG32K3A_M1) * MRG32K3A_NORM)
   ELSE
@@ -173,9 +164,6 @@ END mrg32k3a;
 
 
 (* -------------------------------------------------------------------
-    Генератор какбыслучайных чисел, алгоритм Мерсена-Твистера (MT19937).
-    Переделка из Delphi в Oberon Вадим Исаев, 2020.
-
     Mersenne Twister Random Number Generator.
 
     A C-program for MT19937, with initialization improved 2002/1/26.

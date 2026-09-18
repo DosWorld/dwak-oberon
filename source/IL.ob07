@@ -1,16 +1,20 @@
 ﻿(*
     BSD 2-Clause License
 
+    Copyright (c) 2026-, DosWorld
     Copyright (c) 2018-2023, Anton Krotov
     All rights reserved.
 *)
 
 MODULE IL;
 
-IMPORT LISTS, SCAN, STRINGS, CHL := CHUNKLISTS, C := COLLECTIONS, TARGETS, PATHS;
+IMPORT SYSTEM, LISTS, SCAN, STRINGS, CHL := CHUNKLISTS, TARGETS, PATHS;
 
 
 CONST
+
+    (* How many commands one chunk of the command arena holds. *)
+    SLOTS = 1024;
 
     call_stack* = 0;
     call_win64* = 1;
@@ -135,19 +139,37 @@ CONST
 
 TYPE
 
-    COMMAND* = POINTER TO RECORD (LISTS.ITEM)
+    COMMAND* = POINTER TO CMD;
+
+    (* One command of the intermediate language. The stream is a doubly linked
+       list of these and every back end walks it from front to back, one node at
+       a time, so a node carries its own links and nothing else: no inheritance
+       and no type tag, which is what lets a command live in the arena below
+       instead of on the heap. *)
+    CMD* = RECORD
 
         opcode*:    INTEGER;
         param1*:    INTEGER;
         param2*:    INTEGER;
         param3*:    INTEGER;
-        float*:     REAL
+        float*:     REAL;
+
+        next*, prev*: COMMAND
 
     END;
 
-    FNAMECMD* = POINTER TO RECORD (COMMAND)
+    (* Commands are made in bulk and every one of them has the same size, so
+       they are carved out of chunks instead of being allocated one by one. A
+       chunk is a single block as far as the heap is concerned and holds SLOTS
+       commands, which on the hxdos target turns a hundred thousand blocks into
+       a few hundred and keeps the allocator's block list short. Memory is only
+       ever returned a chunk at a time, so an individual command is parked for
+       reuse rather than disposed. *)
+    CHUNK = POINTER TO RECORD
 
-        fname*: PATHS.PATH
+        next: CHUNK;
+        used: INTEGER;
+        body: ARRAY SLOTS OF CMD
 
     END;
 
@@ -184,14 +206,15 @@ TYPE
 
     CODES = RECORD
 
-        last:       COMMAND;
+        commands*:  COMMAND;    (* the head of the stream *)
+        last:       COMMAND;    (* where the next command goes *)
         begcall:    CMDSTACK;
         endcall:    CMDSTACK;
-        commands*:  LISTS.LIST;
         export*:    LISTS.LIST;
         _import*:   LISTS.LIST;
         types*:     CHL.INTLIST;
         data*:      CHL.BYTELIST;
+        names*:     CHL.BYTELIST;   (* the file names opFNAME commands point at *)
         dmin*:      INTEGER;
         lcount*:    INTEGER;
         bss*:       INTEGER;
@@ -210,7 +233,9 @@ VAR
     codes*: CODES;
     CPU: INTEGER;
 
-    commands: C.COLLECTION;
+    pool:     COMMAND;  (* the commands given back, linked through next *)
+    chunks:   CHUNK;    (* every chunk handed out, newest first *)
+    curChunk: CHUNK;    (* the one still being carved from *)
 
 
 PROCEDURE set_dmin* (value: INTEGER);
@@ -231,21 +256,105 @@ BEGIN
 END set_rtl;
 
 
-PROCEDURE NewCmd (): COMMAND;
+(* Carve one command out of the arena, opening a fresh chunk once the current
+   one is full. A chunk is never released on its own, so a command that is no
+   longer wanted goes back to the pool instead (see recycle). *)
+PROCEDURE AllocCmd (): COMMAND;
 VAR
-    cmd:   COMMAND;
-    citem: C.ITEM;
+    cmd: COMMAND;
+    adr: INTEGER;
 
 BEGIN
-    citem := C.pop(commands);
-    IF citem = NIL THEN
-        NEW(cmd)
+    IF (curChunk = NIL) OR (curChunk.used = SLOTS) THEN
+        NEW(curChunk);
+        curChunk.next := chunks;
+        curChunk.used := 0;
+        chunks := curChunk
+    END;
+
+    (* SYSTEM.VAL takes its second argument as a designator, so the
+       address has to go through a variable first. *)
+    adr := SYSTEM.ADR(curChunk.body[curChunk.used]);
+    cmd := SYSTEM.VAL(COMMAND, adr);
+    INC(curChunk.used);
+
+    RETURN cmd
+END AllocCmd;
+
+
+(* A command that is no longer wanted is parked for the next NewCmd. It belongs
+   to a chunk, and a chunk is only ever released whole, so there is nothing to
+   give back here. *)
+PROCEDURE recycle (cmd: COMMAND);
+BEGIN
+    cmd.next := pool;
+    pool := cmd
+END recycle;
+
+
+PROCEDURE NewCmd (): COMMAND;
+VAR
+    cmd: COMMAND;
+
+BEGIN
+    cmd := pool;
+    IF cmd = NIL THEN
+        cmd := AllocCmd()
     ELSE
-        cmd := citem(COMMAND)
-    END
+        pool := cmd.next
+    END;
 
     RETURN cmd
 END NewCmd;
+
+
+(* Put `nov` into the stream right after `cur`. The stream is the command list
+   itself -- codes.commands is its head -- so there is no separate list object
+   to keep in step, and the tail the caller inserts after is codes.last. *)
+PROCEDURE link (cur, nov: COMMAND);
+VAR
+    next: COMMAND;
+
+BEGIN
+    ASSERT(cur # NIL);
+    ASSERT(nov # NIL);
+
+    next := cur.next;
+    nov.prev := cur;
+    nov.next := next;
+    cur.next := nov;
+
+    IF next # NIL THEN
+        next.prev := nov
+    END
+END link;
+
+
+(* Take `cmd` out of the stream. Its links are cleared so that a command parked
+   in the pool cannot be reached through them. *)
+PROCEDURE unlink (cmd: COMMAND);
+VAR
+    prev, next: COMMAND;
+
+BEGIN
+    ASSERT(cmd # NIL);
+
+    prev := cmd.prev;
+    next := cmd.next;
+
+    IF prev # NIL THEN
+        prev.next := next
+    ELSE
+        codes.commands := next
+    END;
+
+    IF next # NIL THEN
+        next.prev := prev
+    END;
+
+    cmd.prev := NIL;
+    cmd.next := NIL
+END unlink;
 
 
 PROCEDURE setlast* (cmd: COMMAND);
@@ -403,7 +512,7 @@ BEGIN
     push(codes.begcall, beg);
     push(codes.endcall, _end);
     beg := codes.last;
-    _end := beg.next(COMMAND)
+    _end := beg.next
 END pushBegEnd;
 
 
@@ -511,10 +620,10 @@ BEGIN
     END;
 
     IF old_opcode = -1 THEN
-        LISTS.insert(codes.commands, cur, nov);
+        link(cur, nov);
         codes.last := nov
     ELSE
-        C.push(commands, nov);
+        recycle(nov);
         codes.last := cur
     END
 END insert;
@@ -590,14 +699,14 @@ END AddCmd0;
 
 PROCEDURE delete (cmd: COMMAND);
 BEGIN
-    LISTS.delete(codes.commands, cmd);
-    C.push(commands, cmd)
+    unlink(cmd);
+    recycle(cmd)
 END delete;
 
 
-PROCEDURE delete2* (first, last: LISTS.ITEM);
+PROCEDURE delete2* (first, last: COMMAND);
 VAR
-    cur, next: LISTS.ITEM;
+    cur, next: COMMAND;
 
 BEGIN
     cur := first;
@@ -605,14 +714,14 @@ BEGIN
     IF first # last THEN
         REPEAT
             next := cur.next;
-            LISTS.delete(codes.commands, cur);
-            C.push(commands, cur);
+            unlink(cur);
+            recycle(cur);
             cur := next
         UNTIL cur = last
     END;
 
-    LISTS.delete(codes.commands, cur);
-    C.push(commands, cur)
+    unlink(cur);
+    recycle(cur)
 END delete2;
 
 
@@ -652,7 +761,7 @@ BEGIN
     cur := codes.last;
     not := cur.opcode = opNOT;
     IF not THEN
-        cur := cur.prev(COMMAND)
+        cur := cur.prev
     END;
 
     IF cur.opcode = opAND THEN
@@ -672,7 +781,7 @@ BEGIN
             ELSE (* op = opOR *)
                 op := opAND
             END;
-            prev := cur.prev(COMMAND);
+            prev := cur.prev;
             delete(cur);
             cur := prev
         END;
@@ -683,7 +792,7 @@ BEGIN
             ELSIF i = 9 THEN
                 jz := cur.opcode = opJZ
             END;
-            prev := cur.prev(COMMAND);
+            prev := cur.prev;
             delete(cur);
             cur := prev
         END;
@@ -754,7 +863,7 @@ VAR
 BEGIN
     prev := codes.last;
     IF prev.opcode = opNOT THEN
-        codes.last := prev.prev(COMMAND);
+        codes.last := prev.prev;
         delete(prev)
     ELSE
         AddCmd0(opNOT)
@@ -835,7 +944,7 @@ BEGIN
     |call_win64: Jmp(opWIN64CALL, proc)
     |call_sysv:  Jmp(opSYSVCALL, proc)
     END;
-    codes.last(COMMAND).param2 := fparams
+    codes.last.param2 := fparams
 END Call;
 
 
@@ -847,7 +956,7 @@ BEGIN
     |call_win64: Jmp(opWIN64CALLI, proc(IMPORT_PROC).label)
     |call_sysv:  Jmp(opSYSVCALLI, proc(IMPORT_PROC).label)
     END;
-    codes.last(COMMAND).param2 := fparams
+    codes.last.param2 := fparams
 END CallImp;
 
 
@@ -1081,16 +1190,27 @@ BEGIN
 END _case;
 
 
+(* The name of the source file the commands that follow come from. It is 2048
+   characters, far too big to travel inside a command, so it goes into a byte
+   list of its own and the command carries where it starts. *)
 PROCEDURE fname* (name: PATHS.PATH);
 VAR
-    cmd: FNAMECMD;
+    cmd: COMMAND;
 
 BEGIN
-    NEW(cmd);
+    cmd := NewCmd();
     cmd.opcode := opFNAME;
-    cmd.fname := name;
+    cmd.param1 := CHL.PushStr(codes.names, name);
     insert(codes.last, cmd)
 END fname;
+
+
+(* The file name an opFNAME command stands for. The back ends read it to build
+   the error messages they print while translating. *)
+PROCEDURE GetName* (idx: INTEGER; VAR name: PATHS.PATH);
+BEGIN
+    ASSERT(CHL.GetStr(codes.names, idx, name))
+END GetName;
 
 
 PROCEDURE AddExp* (label: INTEGER; name: SCAN.IDSTR);
@@ -1146,15 +1266,23 @@ END AddImp;
 PROCEDURE DelImport* (imp: LISTS.ITEM);
 VAR
     lib: IMPORT_LIB;
+    p:   IMPORT_PROC;
 
 BEGIN
-    DEC(imp(IMPORT_PROC).count);
-    IF imp(IMPORT_PROC).count = 0 THEN
-        lib := imp(IMPORT_PROC).lib;
-        LISTS.delete(lib.procs, imp);
+    p := imp(IMPORT_PROC);
+    DEC(p.count);
+
+    IF p.count = 0 THEN
+        lib := p.lib;
+        LISTS.delete(lib.procs, p);
+
         IF lib.procs.first = NIL THEN
-            LISTS.delete(codes._import, lib)
-        END
+            LISTS.delete(codes._import, lib);
+            DISPOSE(lib.procs);
+            DISPOSE(lib)
+        END;
+
+        DISPOSE(p)
     END
 END DelImport;
 
@@ -1165,7 +1293,9 @@ VAR
     i:   INTEGER;
 
 BEGIN
-    commands := C.create();
+    pool := NIL;
+    chunks := NIL;
+    curChunk := NIL;
 
     CPU := pCPU;
 
@@ -1173,15 +1303,18 @@ BEGIN
     codes.begcall.top := -1;
     NEW(codes.endcall);
     codes.endcall.top := -1;
-    codes.commands := LISTS.create(NIL);
     codes.export   := LISTS.create(NIL);
     codes._import  := LISTS.create(NIL);
     codes.types    := CHL.CreateIntList();
     codes.data     := CHL.CreateByteList();
+    codes.names    := CHL.CreateByteList();
 
-    NEW(cmd); cmd.opcode := opNOP; LISTS.push(codes.commands, cmd);
+    (* Two nops open the stream and codes.last stops at the first of them, so
+       the first command the front end adds lands between the two. *)
+    cmd := NewCmd(); cmd.opcode := opNOP; cmd.prev := NIL; cmd.next := NIL;
+    codes.commands := cmd;
     codes.last := cmd;
-    NEW(cmd); cmd.opcode := opNOP; LISTS.push(codes.commands, cmd);
+    cmd := NewCmd(); cmd.opcode := opNOP; link(codes.last, cmd);
 
     AddRec(0);
 
@@ -1196,6 +1329,100 @@ BEGIN
     END
 
 END init;
+
+
+(* Unlink and release every node of `list`. The nodes go one at a time because
+   DISPOSE invalidates the pointer it is given. The caller keeps the now empty
+   header and disposes it itself. *)
+PROCEDURE FreeNodes (list: LISTS.LIST);
+VAR
+    itm: LISTS.ITEM;
+
+BEGIN
+    itm := list.first;
+
+    WHILE itm # NIL DO
+        list.first := itm.next;
+        DISPOSE(itm);
+        itm := list.first
+    END;
+
+    list.last := NIL
+END FreeNodes;
+
+
+(* Hand back the commands code generation has already walked past. The back ends
+   move through the command list strictly forwards and never look back, so every
+   node before `cmd` is dead by the time the caller reaches it. Passing NIL
+   releases the whole remainder, which is what the callers do once their loop is
+   over. `cmd` itself is never touched.
+
+   The commands go back to the pool, not to the heap: their memory belongs to a
+   chunk, and a chunk is only ever released whole. Since nothing allocates a
+   command during code generation the pool just sits there, which is fine -- the
+   peak was reached while the front end was still running. *)
+PROCEDURE freeUpTo* (cmd: COMMAND);
+VAR
+    cur: COMMAND;
+
+BEGIN
+    cur := codes.commands;
+
+    WHILE (cur # NIL) & (cur # cmd) DO
+        unlink(cur);
+        recycle(cur);
+        cur := codes.commands
+    END
+END freeUpTo;
+
+
+(* Release everything IL allocated. Only valid once code generation is over; the
+   module must not be used afterwards. *)
+PROCEDURE Free*;
+VAR
+    node:  LISTS.ITEM;
+    lib:   IMPORT_LIB;
+    chunk: CHUNK;
+
+BEGIN
+    freeUpTo(NIL);
+    codes.last := NIL;
+
+    FreeNodes(codes.export);
+    DISPOSE(codes.export);
+
+    node := codes._import.first;
+    WHILE node # NIL DO
+        codes._import.first := node.next;
+        lib := node(IMPORT_LIB);
+        FreeNodes(lib.procs);
+        DISPOSE(lib.procs);
+        DISPOSE(lib);
+        node := codes._import.first
+    END;
+    codes._import.last := NIL;
+    DISPOSE(codes._import);
+
+    (* Every command came out of a chunk, so the pool needs no draining: the
+       commands still parked on it go away with the chunks that hold them, and
+       so does the stream itself, whose nodes are the very same memory. *)
+    WHILE chunks # NIL DO
+        chunk := chunks;
+        chunks := chunk.next;
+        DISPOSE(chunk)
+    END;
+    curChunk := NIL;
+    pool := NIL;
+    codes.commands := NIL;
+    codes.last := NIL;
+
+    DISPOSE(codes.begcall);
+    DISPOSE(codes.endcall);
+
+    CHL.Free(codes.data);
+    CHL.Free(codes.types);
+    CHL.Free(codes.names)
+END Free;
 
 
 END IL.

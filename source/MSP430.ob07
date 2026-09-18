@@ -1,13 +1,14 @@
 ﻿(*
     BSD 2-Clause License
 
+    Copyright (c) 2026-, DosWorld
     Copyright (c) 2019-2022, Anton Krotov
     All rights reserved.
 *)
 
 MODULE MSP430;
 
-IMPORT IL, LISTS, REG, CHL := CHUNKLISTS, ERRORS, WR := WRITER, HEX,
+IMPORT SYSTEM, IL, REG, CHL := CHUNKLISTS, ERRORS, WR := WRITER, HEX,
        UTILS, C := CONSOLE, PROG, RTL := MSP430RTL;
 
 
@@ -51,46 +52,59 @@ CONST
     jle = 4;  jg  = jle + 1;
     jb  = 6;
 
+    (* What a node of the code list stands for. The list holds one kind of
+       record with a kind field rather than a record type per kind, so a walk
+       tells the nodes apart by reading that field: the type tests it used to
+       make cost a call into the runtime for every node of every pass. See
+       NODEBODY. *)
+    tWORD  = 0;
+    tLABEL = 1;
+    tJMP   = 2;
+    tCALL  = 3;
+    tRELOC = 4;
+
+    (* Nodes per chunk, and how many chunks the arena can hold. *)
+    SLOTS = 1024;
+    MAXCHUNKS = 1024;
+
 
 TYPE
 
-    ANYCODE = POINTER TO RECORD (LISTS.ITEM)
-
-        offset: INTEGER
-
-    END;
-
-    WORD = POINTER TO RECORD (ANYCODE)
-
-        val: INTEGER
-
-    END;
-
-    LABEL = POINTER TO RECORD (ANYCODE)
-
-        num: INTEGER
-
-    END;
-
-    JMP = POINTER TO RECORD (ANYCODE)
-
-        cc, label: INTEGER;
-        short: BOOLEAN
-
-    END;
-
-    CALL = POINTER TO RECORD (ANYCODE)
-
-        label: INTEGER
-
-    END;
-
     COMMAND = IL.COMMAND;
 
-    RELOC = POINTER TO RECORD (LISTS.ITEM)
+    (* One record type for every node of the list, told apart by its kind, and
+       one pointer to it. The list used to hold a type per node kind - a code
+       word, a label, a jump, a call - and every pass over it had to ask each
+       node what it was. A node of any kind is carved out of a chunk (see
+       NewNode) and its index in the arena is what names it, so the list is a
+       vector of nodes and a walk is an index running from zero, with no links
+       to follow and no casts to make.
 
-        section: INTEGER;
-        WordPtr: WORD
+       A relocation is a node too, of kind tRELOC: it names the word that has
+       to be patched, which used to be a pointer to that word's node. *)
+    NODEBODY = RECORD
+
+        kind:   INTEGER;    (* tWORD ... tRELOC *)
+        offset: INTEGER;    (* where the node lands, counted in words *)
+        val:    INTEGER;    (* tWORD: the word itself; tLABEL: which label this is;
+                               tRELOC: the section the address belongs to *)
+        label:  INTEGER;    (* tJMP/tCALL: which label is aimed at *)
+        cc:     INTEGER;    (* tJMP: the condition *)
+        ptr:    INTEGER;    (* tRELOC: the word node that holds the address *)
+        short:  BOOLEAN     (* tJMP: whether the short form has been found *)
+
+    END;
+
+    NODE = POINTER TO NODEBODY;
+
+    (* Every node used to be a block of its own on the heap. They are carved
+       out of chunks instead, the way IL carves its commands and X86 its own
+       nodes: a chunk is a single block as far as the heap is concerned and
+       holds SLOTS nodes, so the allocator has far fewer blocks to walk past
+       and far fewer headers to write. *)
+    CHUNK = POINTER TO RECORD
+
+        node: ARRAY SLOTS OF NODEBODY
 
     END;
 
@@ -99,8 +113,14 @@ VAR
 
     R: REG.REGS;
 
-    CodeList: LISTS.LIST;
-    RelList:  LISTS.LIST;
+    (* The code list: the chunks handed out, in order, how many of them there
+       are, how many nodes they hold between them, and which node the last
+       word emitted went into - a relocation patches the word just emitted,
+       which is what the emitter remembers here. *)
+    chunks:   ARRAY MAXCHUNKS OF CHUNK;
+    nchunks:  INTEGER;
+    ncount:   INTEGER;
+    lastWord: INTEGER;
 
     mem: ARRAY 65536 OF BYTE;
 
@@ -118,20 +138,108 @@ PROCEDURE CheckProcDataSize* (VarSize, RamSize: INTEGER): BOOLEAN;
 END CheckProcDataSize;
 
 
-PROCEDURE EmitLabel (L: INTEGER);
+(* Where a node is. The chunks are uniform, so its index alone says it: the
+   chunk is the index divided by the slots in one, the slot the remainder. *)
+PROCEDURE NodeAddr (i: INTEGER): INTEGER;
+BEGIN
+    RETURN SYSTEM.ADR(chunks[i DIV SLOTS].node[i MOD SLOTS])
+END NodeAddr;
+
+
+PROCEDURE NodeAt (i: INTEGER): NODE;
 VAR
-    label: LABEL;
+    adr: INTEGER;
 
 BEGIN
-    NEW(label);
-    label.num := L;
-    LISTS.push(CodeList, label)
+    adr := NodeAddr(i);
+
+    RETURN SYSTEM.VAL(NODE, adr)
+END NodeAt;
+
+
+(* How many of a chunk's slots hold a node. Every chunk but the last is full. *)
+PROCEDURE Used (i: INTEGER): INTEGER;
+VAR
+    res: INTEGER;
+
+BEGIN
+    IF i = nchunks - 1 THEN
+        res := ncount - i * SLOTS
+    ELSE
+        res := SLOTS
+    END;
+
+    RETURN res
+END Used;
+
+
+(* Make room for one more node at the end of the list. *)
+PROCEDURE Grow;
+BEGIN
+    IF (nchunks = 0) OR (Used(nchunks - 1) = SLOTS) THEN
+        ASSERT(nchunks < MAXCHUNKS);
+        NEW(chunks[nchunks]);
+        INC(nchunks)
+    END
+END Grow;
+
+
+(* A node of the given kind with nothing else in it. The kinds share one record,
+   so the fields another kind uses have to be cleared here. *)
+PROCEDURE InitNode (n: NODE; kind: INTEGER);
+BEGIN
+    n.kind   := kind;
+    n.offset := 0;
+    n.val    := 0;
+    n.label  := 0;
+    n.cc     := 0;
+    n.ptr    := 0;
+    n.short  := FALSE
+END InitNode;
+
+
+(* A fresh node of the given kind, at the end of the list. *)
+PROCEDURE NewNode (kind: INTEGER): NODE;
+VAR
+    n: NODE;
+
+BEGIN
+    Grow;
+    n := NodeAt(ncount);
+    InitNode(n, kind);
+    INC(ncount);
+
+    RETURN n
+END NewNode;
+
+
+(* Throw the whole list away and give its memory back. *)
+PROCEDURE FreeNodes;
+VAR
+    i: INTEGER;
+
+BEGIN
+    FOR i := 0 TO nchunks - 1 DO
+        DISPOSE(chunks[i])
+    END;
+    nchunks := 0;
+    ncount := 0
+END FreeNodes;
+
+
+PROCEDURE EmitLabel (L: INTEGER);
+VAR
+    n: NODE;
+
+BEGIN
+    n := NewNode(tLABEL);
+    n.val := L
 END EmitLabel;
 
 
 PROCEDURE EmitWord (val: INTEGER);
 VAR
-    word: WORD;
+    n: NODE;
 
 BEGIN
     IF val < 0 THEN
@@ -140,33 +248,31 @@ BEGIN
     ELSE
         ASSERT(val <= 65535)
     END;
-    NEW(word);
-    word.val := val;
-    LISTS.push(CodeList, word)
+    n := NewNode(tWORD);
+    n.val := val;
+    lastWord := ncount - 1
 END EmitWord;
 
 
 PROCEDURE EmitJmp (cc, label: INTEGER);
 VAR
-    jmp: JMP;
+    n: NODE;
 
 BEGIN
-    NEW(jmp);
-    jmp.cc := cc;
-    jmp.label := label;
-    jmp.short := FALSE;
-    LISTS.push(CodeList, jmp)
+    n := NewNode(tJMP);
+    n.cc := cc;
+    n.label := label;
+    n.short := FALSE
 END EmitJmp;
 
 
 PROCEDURE EmitCall (label: INTEGER);
 VAR
-    call: CALL;
+    n: NODE;
 
 BEGIN
-    NEW(call);
-    call.label := label;
-    LISTS.push(CodeList, call)
+    n := NewNode(tCALL);
+    n.label := label
 END EmitCall;
 
 
@@ -308,47 +414,47 @@ END LabelOffs;
 
 PROCEDURE Fixup (CodeAdr, IntVectorSize: INTEGER): INTEGER;
 VAR
-    cmd:      ANYCODE;
+    n:        NODE;
     adr:      INTEGER;
     offset:   INTEGER;
     diff:     INTEGER;
     cc:       INTEGER;
     shorted:  BOOLEAN;
+    i:        INTEGER;
 
 BEGIN
     REPEAT
         shorted := FALSE;
         offset := CodeAdr DIV 2;
 
-        cmd := CodeList.first(ANYCODE);
-        WHILE cmd # NIL DO
-            cmd.offset := offset;
-            CASE cmd OF
-            |LABEL: CHL.SetInt(Labels, cmd.num, offset)
-            |JMP:   INC(offset);
-                    IF ~cmd.short THEN
-                        INC(offset);
-                        IF cmd.cc # opJMP THEN
-                            INC(offset)
-                        END
-                    END
+        FOR i := 0 TO ncount - 1 DO
+            n := NodeAt(i);
+            n.offset := offset;
+            CASE n.kind OF
+            |tLABEL: CHL.SetInt(Labels, n.val, offset)
+            |tJMP:   INC(offset);
+                     IF ~n.short THEN
+                         INC(offset);
+                         IF n.cc # opJMP THEN
+                             INC(offset)
+                         END
+                     END
 
-            |CALL:  INC(offset, 2)
-            |WORD:  INC(offset)
-            END;
-            cmd := cmd.next(ANYCODE)
+            |tCALL:  INC(offset, 2)
+            |tWORD:  INC(offset)
+            |tRELOC:
+            END
         END;
 
-        cmd := CodeList.first(ANYCODE);
-        WHILE cmd # NIL DO
-            IF (cmd IS JMP) & ~cmd(JMP).short THEN
-                diff := LabelOffs(cmd(JMP).label) - cmd.offset - 1;
+        FOR i := 0 TO ncount - 1 DO
+            n := NodeAt(i);
+            IF (n.kind = tJMP) & ~n.short THEN
+                diff := LabelOffs(n.label) - n.offset - 1;
                 IF ABS(diff) <= 512 THEN
-                    cmd(JMP).short := TRUE;
+                    n.short := TRUE;
                     shorted := TRUE
                 END
-            END;
-            cmd := cmd.next(ANYCODE)
+            END
         END
 
     UNTIL ~shorted;
@@ -358,13 +464,13 @@ BEGIN
     END;
 
     adr := CodeAdr;
-    cmd := CodeList.first(ANYCODE);
-    WHILE cmd # NIL DO
-        CASE cmd OF
-        |LABEL:
+    FOR i := 0 TO ncount - 1 DO
+        n := NodeAt(i);
+        CASE n.kind OF
+        |tLABEL:
 
-        |JMP:   IF ~cmd.short THEN
-                    CASE cmd.cc OF
+        |tJMP:  IF ~n.short THEN
+                    CASE n.cc OF
                     |opJNE: cc := opJEQ
                     |opJEQ: cc := opJNE
                     |opJNC: cc := opJC
@@ -379,21 +485,21 @@ BEGIN
                     END;
 
                     PutWord(4030H, adr); (* MOV @PC+, PC *)
-                    PutWord(LabelOffs(cmd.label) * 2, adr)
+                    PutWord(LabelOffs(n.label) * 2, adr)
                     (* L: *)
                 ELSE
-                    diff := LabelOffs(cmd.label) - cmd.offset - 1;
+                    diff := LabelOffs(n.label) - n.offset - 1;
                     ASSERT((-512 <= diff) & (diff <= 511));
-                    PutWord(cmd.cc + diff MOD 1024, adr)
+                    PutWord(n.cc + diff MOD 1024, adr)
                 END
 
-        |CALL:  PutWord(12B0H, adr); (* CALL @PC+ *)
-                PutWord(LabelOffs(cmd.label) * 2, adr)
+        |tCALL: PutWord(12B0H, adr); (* CALL @PC+ *)
+                PutWord(LabelOffs(n.label) * 2, adr)
 
-        |WORD:  PutWord(cmd.val, adr)
+        |tWORD: PutWord(n.val, adr)
 
-        END;
-        cmd := cmd.next(ANYCODE)
+        |tRELOC:
+        END
     END
 
     RETURN adr - CodeAdr
@@ -440,15 +546,18 @@ BEGIN
 END xchg;
 
 
+(* The word just emitted holds an address that is only known once the whole
+   program has been laid out, so a node remembers it and Fixup comes back to
+   it. The node is appended to the same list as everything else; the pass that
+   patches them walks the list for the relocations. *)
 PROCEDURE Reloc (section: INTEGER);
 VAR
-    reloc: RELOC;
+    n: NODE;
 
 BEGIN
-    NEW(reloc);
-    reloc.section := section;
-    reloc.WordPtr := CodeList.last(WORD);
-    LISTS.push(RelList, reloc)
+    n := NewNode(tRELOC);
+    n.val := section;
+    n.ptr := lastWord
 END Reloc;
 
 
@@ -637,12 +746,15 @@ VAR
 
     cc: INTEGER;
 
-    word: WORD;
+    word: NODE;
 
 BEGIN
-    cmd := IL.codes.commands.first(COMMAND);
+    cmd := IL.codes.commands;
 
     WHILE cmd # NIL DO
+
+        (* This pass never revisits a command, so everything behind us is dead. *)
+        IL.freeUpTo(cmd);
 
         param1 := cmd.param1;
         param2 := cmd.param2;
@@ -705,7 +817,7 @@ BEGIN
                 Op2(opMOV, SP * 256, R4);
                 Op2(opSUB, HP * 256, R4);
                 Op2(opCMP, imm(StkReserve), R4);
-                word := CodeList.last(WORD);
+                word := NodeAt(lastWord);
                 jcc(jge, L);
                 DEC(StkCnt);
                 EmitWord(0C232H); (*  BIC   #8, SR; DINT  *)
@@ -760,11 +872,11 @@ BEGIN
             END
 
         |IL.opCONST:
-            next := cmd.next(COMMAND);
+            next := cmd.next;
             IF next.opcode = IL.opCONST THEN
                 c1 := param2;
                 c2 := next.param2;
-                next := next.next(COMMAND);
+                next := next.next;
                 IF (next.opcode = IL.opSAVE) OR (next.opcode = IL.opSAVE16) OR (next.opcode = IL.opSAVE8) THEN
                     Op2(opMOV + bw(next.opcode = IL.opSAVE8), imm(c1), dst_x(c2, SR));
                     cmd := next
@@ -920,7 +1032,7 @@ BEGIN
 
             drop;
             cc := cond(opcode);
-            next := cmd.next(COMMAND);
+            next := cmd.next;
 
             IF next.opcode = IL.opJNZ THEN
                 jcc(cc, next.param1);
@@ -1561,8 +1673,11 @@ BEGIN
 
         END;
 
-        cmd := cmd.next(COMMAND)
+        cmd := cmd.next
     END;
+
+    (* The loop leaves the tail of the list behind. *)
+    IL.freeUpTo(NIL);
 
     ASSERT(R.pushed = 0);
     ASSERT(R.top = -1)
@@ -1647,7 +1762,7 @@ VAR
 
     ram, rom: INTEGER;
 
-    reloc: RELOC;
+    r, w: NODE;
 
 BEGIN
     IdxWords.src := NOWORD;
@@ -1671,8 +1786,8 @@ BEGIN
         CHL.PushInt(Labels, 0)
     END;
 
-    CodeList := LISTS.create(NIL);
-    RelList  := LISTS.create(NIL);
+    FreeNodes;
+    lastWord := -1;
     REG.Init(R, Push, Pop, mov, xchg, {R4, R5, R6, R7});
 
     prolog;
@@ -1710,16 +1825,21 @@ BEGIN
     adr := Code.address + 6;
     PutWord(heap, adr);
 
-    reloc := RelList.first(RELOC);
-    WHILE reloc # NIL DO
-        adr := reloc.WordPtr.offset * 2;
-        val := reloc.WordPtr.val;
-        CASE reloc.section OF
-        |RCODE: PutWord(LabelOffs(val) * 2, adr)
-        |RDATA: PutWord(val + Data.address, adr)
-        |RBSS:  PutWord((val + Bss.address) MOD 65536, adr)
-        END;
-        reloc := reloc.next(RELOC)
+    (* The addresses are known now, so the words the emitter held back are
+       patched. A relocation is a node of the same list as everything else, so
+       this simply walks it and looks at those. *)
+    FOR i := 0 TO ncount - 1 DO
+        r := NodeAt(i);
+        IF r.kind = tRELOC THEN
+            w := NodeAt(r.ptr);
+            adr := w.offset * 2;
+            val := w.val;
+            CASE r.val OF
+            |RCODE: PutWord(LabelOffs(val) * 2, adr)
+            |RDATA: PutWord(val + Data.address, adr)
+            |RBSS:  PutWord((val + Bss.address) MOD 65536, adr)
+            END
+        END
     END;
 
     adr := Data.address;

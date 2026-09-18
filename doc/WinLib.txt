@@ -1,70 +1,70 @@
 ﻿==============================================================================
 
-        Библиотека (Windows)
+        Library (Windows)
 
 ------------------------------------------------------------------------------
-MODULE Out - консольный вывод
+MODULE Out - console output
 
         PROCEDURE Open
-                открывает консольный вывод
+                opens console output
 
         PROCEDURE Int(x, width: INTEGER)
-                вывод целого числа x;
-                width - количество знакомест, используемых для вывода
+                outputs the integer x;
+                width - the number of character positions used for the output
 
         PROCEDURE Real(x: REAL; width: INTEGER)
-                вывод вещественного числа x в плавающем формате;
-                width - количество знакомест, используемых для вывода
+                outputs the real number x in floating-point format;
+                width - the number of character positions used for the output
 
         PROCEDURE Char(x: CHAR)
-                вывод символа x
+                outputs the character x
 
         PROCEDURE FixReal(x: REAL; width, p: INTEGER)
-                вывод вещественного числа x в фиксированном формате;
-                width - количество знакомест, используемых для вывода;
-                p - количество знаков после десятичной точки
+                outputs the real number x in fixed-point format;
+                width - the number of character positions used for the output;
+                p - the number of digits after the decimal point
 
         PROCEDURE Ln
-                переход на следующую строку
+                moves to the next line
 
         PROCEDURE String(s: ARRAY OF CHAR)
-                вывод строки s (ASCII)
+                outputs the string s (ASCII)
 
         PROCEDURE StringW(s: ARRAY OF WCHAR)
-                вывод строки s (UTF-16)
+                outputs the string s (UTF-16)
 
 ------------------------------------------------------------------------------
-MODULE In - консольный ввод
+MODULE In - console input
 
         VAR Done: BOOLEAN
-                принимает значение TRUE в случае успешного выполнения
-                операции ввода и FALSE в противном случае
+                is set to TRUE when the input operation completes
+                successfully and to FALSE otherwise
 
         PROCEDURE Open
-                открывает консольный ввод,
-                также присваивает переменной Done значение TRUE
+                opens console input;
+                also sets the variable Done to TRUE
 
         PROCEDURE Int(VAR x: INTEGER)
-                ввод числа типа INTEGER
+                reads an INTEGER value
 
         PROCEDURE Char(VAR x: CHAR)
-                ввод символа
+                reads a character
 
         PROCEDURE Real(VAR x: REAL)
-                ввод числа типа REAL
+                reads a REAL value
 
         PROCEDURE String(VAR s: ARRAY OF CHAR)
-                ввод строки
+                reads a string
 
         PROCEDURE Ln
-                ожидание нажатия ENTER
+                waits for ENTER to be pressed
 
 ------------------------------------------------------------------------------
-MODULE Console - дополнительные процедуры консольного вывода
+MODULE Console - additional console output procedures
 
         CONST
 
-        Следующие константы определяют цвет консольного вывода
+        The following constants define the console output colour
 
                 Black = 0      Blue = 1           Green = 2
                 Cyan = 3       Red = 4            Magenta = 5
@@ -74,27 +74,27 @@ MODULE Console - дополнительные процедуры консоль�
                 White = 15
 
         PROCEDURE Cls
-                очистка окна консоли
+                clears the console window
 
         PROCEDURE SetColor(FColor, BColor: INTEGER)
-                установка цвета консольного вывода: FColor - цвет текста,
-                BColor - цвет фона, возможные значения - вышеперечисленные
-                константы
+                sets the colour of console output: FColor - text colour,
+                BColor - background colour; the possible values are the
+                constants listed above
 
         PROCEDURE SetCursor(x, y: INTEGER)
-                установка курсора консоли в позицию (x, y)
+                sets the console cursor to position (x, y)
 
         PROCEDURE GetCursor(VAR x, y: INTEGER)
-                записывает в параметры текущие координаты курсора консоли
+                writes the current console cursor coordinates into the parameters
 
         PROCEDURE GetCursorX(): INTEGER
-                возвращает текущую x-координату курсора консоли
+                returns the current x coordinate of the console cursor
 
         PROCEDURE GetCursorY(): INTEGER
-                возвращает текущую y-координату курсора консоли
+                returns the current y coordinate of the console cursor
 
 ------------------------------------------------------------------------------
-MODULE Math - математические функции
+MODULE Math - mathematical functions
 
         CONST
 
@@ -102,89 +102,89 @@ MODULE Math - математические функции
                 e  = 2.718281828459045E+00
 
         PROCEDURE IsNan(x: REAL): BOOLEAN
-                возвращает TRUE, если x - не число
+                returns TRUE if x is not a number
 
         PROCEDURE IsInf(x: REAL): BOOLEAN
-                возвращает TRUE, если x - бесконечность
+                returns TRUE if x is infinity
 
         PROCEDURE sqrt(x: REAL): REAL
-                квадратный корень x
+                square root of x
 
         PROCEDURE exp(x: REAL): REAL
-                экспонента x
+                the exponential of x
 
         PROCEDURE ln(x: REAL): REAL
-                натуральный логарифм x
+                natural logarithm of x
 
         PROCEDURE sin(x: REAL): REAL
-                синус x
+                sine of x
 
         PROCEDURE cos(x: REAL): REAL
-                косинус x
+                cosine of x
 
         PROCEDURE tan(x: REAL): REAL
-                тангенс x
+                tangent of x
 
         PROCEDURE arcsin(x: REAL): REAL
-                арксинус x
+                arcsine of x
 
         PROCEDURE arccos(x: REAL): REAL
-                арккосинус x
+                arccosine of x
 
         PROCEDURE arctan(x: REAL): REAL
-                арктангенс x
+                arctangent of x
 
         PROCEDURE arctan2(y, x: REAL): REAL
-                арктангенс y/x
+                arctangent of y/x
 
         PROCEDURE power(base, exponent: REAL): REAL
-                возведение числа base в степень exponent
+                raises base to the power exponent
 
         PROCEDURE log(base, x: REAL): REAL
-                логарифм x по основанию base
+                logarithm of x to base base
 
         PROCEDURE sinh(x: REAL): REAL
-                гиперболический синус x
+                hyperbolic sine of x
 
         PROCEDURE cosh(x: REAL): REAL
-                гиперболический косинус x
+                hyperbolic cosine of x
 
         PROCEDURE tanh(x: REAL): REAL
-                гиперболический тангенс x
+                hyperbolic tangent of x
 
         PROCEDURE arsinh(x: REAL): REAL
-                обратный гиперболический синус x
+                inverse hyperbolic sine of x
 
         PROCEDURE arcosh(x: REAL): REAL
-                обратный гиперболический косинус x
+                inverse hyperbolic cosine of x
 
         PROCEDURE artanh(x: REAL): REAL
-                обратный гиперболический тангенс x
+                inverse hyperbolic tangent of x
 
         PROCEDURE round(x: REAL): REAL
-                округление x до ближайшего целого
+                rounds x to the nearest integer
 
         PROCEDURE frac(x: REAL): REAL;
-                дробная часть числа x
+                fractional part of x
 
         PROCEDURE floor(x: REAL): REAL
-                наибольшее целое число (представление как REAL),
-                не больше x: floor(1.2) = 1.0
+                the largest integer (represented as REAL),
+                not greater than x: floor(1.2) = 1.0
 
         PROCEDURE ceil(x: REAL): REAL
-                наименьшее целое число (представление как REAL),
-                не меньше x: ceil(1.2) = 2.0
+                the smallest integer (represented as REAL),
+                not less than x: ceil(1.2) = 2.0
 
         PROCEDURE sgn(x: REAL): INTEGER
-                если x > 0 возвращает 1
-                если x < 0 возвращает -1
-                если x = 0 возвращает 0
+                returns 1 if x > 0
+                returns -1 if x < 0
+                returns 0 if x = 0
 
         PROCEDURE fact(n: INTEGER): REAL
-                факториал n
+                factorial of n
 
 ------------------------------------------------------------------------------
-MODULE File - работа с файловой системой
+MODULE File - file system operations
 
         CONST
 
@@ -197,116 +197,116 @@ MODULE File - работа с файловой системой
                 SEEK_END = 2
 
         PROCEDURE Create(FName: ARRAY OF CHAR): INTEGER
-                создает новый файл с именем FName (полное имя с путем),
-                открывет файл для записи и возвращает идентификатор файла
-                (целое число), в случае ошибки, возвращает -1
+                creates a new file named FName (full name including the path),
+                opens the file for writing and returns the file identifier
+                (an integer); on error returns -1
 
         PROCEDURE Open(FName: ARRAY OF CHAR; Mode: INTEGER): INTEGER
-                открывает существующий файл с именем FName (полное имя с
-                путем) в режиме Mode = (OPEN_R (только чтение), OPEN_W
-                (только запись), OPEN_RW (чтение и запись)), возвращает
-                идентификатор файла (целое число), в случае ошибки,
-                возвращает -1
+                opens the existing file named FName (full name including
+                the path) in the mode Mode = (OPEN_R (read only), OPEN_W
+                (write only), OPEN_RW (read and write)); returns
+                the file identifier (an integer); on error
+                returns -1
 
         PROCEDURE Read(F, Buffer, Count: INTEGER): INTEGER
-                Читает данные из файла в память. F - числовой идентификатор
-                файла, Buffer - адрес области памяти, Count - количество байт,
-                которое требуется прочитать из файла; возвращает количество
-                байт, которое было прочитано из файла
+                Reads data from a file into memory. F - the numeric file
+                identifier, Buffer - the address of the memory area, Count - the number of bytes
+                to read from the file; returns the number of bytes
+                actually read from the file
 
         PROCEDURE Write(F, Buffer, Count: INTEGER): INTEGER
-                Записывает данные из памяти в файл. F - числовой идентификатор
-                файла, Buffer - адрес области памяти, Count - количество байт,
-                которое требуется записать в файл; возвращает количество байт,
-                которое было записано в файл
+                Writes data from memory to a file. F - the numeric file
+                identifier, Buffer - the address of the memory area, Count - the number of bytes
+                to write to the file; returns the number of bytes
+                actually written to the file
 
         PROCEDURE Seek(F, Offset, Origin: INTEGER): INTEGER
-                устанавливает позицию чтения-записи файла с идентификатором F
-                на Offset, относительно Origin = (SEEK_BEG - начало файла,
-                SEEK_CUR - текущая позиция, SEEK_END - конец файла),
-                возвращает позицию относительно начала файла, например:
-                Seek(F, 0, 2) - устанавливает позицию на конец файла и
-                возвращает длину файла; при ошибке возвращает -1
+                sets the read-write position of the file with identifier F
+                to Offset, relative to Origin = (SEEK_BEG - beginning of the file,
+                SEEK_CUR - current position, SEEK_END - end of the file),
+                returns the position relative to the beginning of the file, for example:
+                Seek(F, 0, 2) sets the position to the end of the file and
+                returns the length of the file; on error returns -1
 
         PROCEDURE Close(F: INTEGER)
-                закрывает ранее открытый файл с идентификатором F
+                closes the previously opened file with identifier F
 
         PROCEDURE Delete(FName: ARRAY OF CHAR): BOOLEAN
-                удаляет файл с именем FName (полное имя с путем),
-                возвращает TRUE, если файл успешно удален
+                deletes the file named FName (full name including the path);
+                returns TRUE if the file was deleted successfully
 
         PROCEDURE Exists(FName: ARRAY OF CHAR): BOOLEAN
-                возвращает TRUE, если файл с именем FName (полное имя)
-                существует
+                returns TRUE if a file named FName (full name)
+                exists
 
         PROCEDURE Load(FName: ARRAY OF CHAR; VAR Size: INTEGER): INTEGER
-                загружает в память существующий файл с именем FName (полное имя с
-                путем), возвращает адрес памяти, куда был загружен файл,
-                записывает размер файла в параметр Size;
-                при ошибке возвращает 0
+                loads the existing file named FName (full name including
+                the path) into memory; returns the memory address where the file was loaded,
+                writes the file size into the parameter Size;
+                on error returns 0
 
         PROCEDURE CreateDir(DirName: ARRAY OF CHAR): BOOLEAN
-                создает папку с именем DirName, все промежуточные папки
-                должны существовать. В случае ошибки, возвращает FALSE
+                creates a directory named DirName; all intermediate directories
+                must already exist. On error returns FALSE
 
         PROCEDURE RemoveDir(DirName: ARRAY OF CHAR): BOOLEAN
-                удаляет пустую папку с именем DirName. В случае ошибки,
-                возвращает FALSE
+                removes the empty directory named DirName. On error
+                returns FALSE
 
         PROCEDURE ExistsDir(DirName: ARRAY OF CHAR): BOOLEAN
-                возвращает TRUE, если папка с именем DirName существует
+                returns TRUE if a directory named DirName exists
 
 ------------------------------------------------------------------------------
-MODULE DateTime - дата, время
+MODULE DateTime - date and time
 
         CONST ERR = -7.0E5
 
         PROCEDURE Now(VAR Year, Month, Day, Hour, Min, Sec, MSec: INTEGER)
-                возвращает в параметрах компоненты текущей системной даты и
-                времени
+                returns the components of the current system date and
+                time in the parameters
 
         PROCEDURE NowEncode(): REAL;
-                возвращает текущую системную дату и
-                время (представление REAL)
+                returns the current system date and
+                time (REAL representation)
 
         PROCEDURE Encode(Year, Month, Day,
             Hour, Min, Sec, MSec: INTEGER): REAL
-                возвращает дату, полученную из компонентов
+                returns the date built from the components
                 Year, Month, Day, Hour, Min, Sec, MSec;
-                при ошибке возвращает константу ERR = -7.0E5
+                on error returns the constant ERR = -7.0E5
 
         PROCEDURE Decode(Date: REAL; VAR Year, Month, Day,
                 Hour, Min, Sec, MSec: INTEGER): BOOLEAN
-                извлекает компоненты
-                Year, Month, Day, Hour, Min, Sec, MSec из даты Date;
-                при ошибке возвращает FALSE
+                extracts the components
+                Year, Month, Day, Hour, Min, Sec, MSec from the date Date;
+                on error returns FALSE
 
 ------------------------------------------------------------------------------
-MODULE Args - параметры программы
+MODULE Args - program parameters
 
         VAR argc: INTEGER
-                количество параметров программы, включая имя
-                исполняемого файла
+                the number of program parameters, including
+                the name of the executable file
 
         PROCEDURE GetArg(n: INTEGER; VAR s: ARRAY OF CHAR)
-                записывает в строку s n-й параметр программы,
-                нумерация параметров от 0 до argc - 1,
-                нулевой параметр -- имя исполняемого файла
+                writes the n-th program parameter into the string s;
+                parameters are numbered from 0 to argc - 1,
+                parameter zero is the name of the executable file
 
 ------------------------------------------------------------------------------
-MODULE Utils - разное
+MODULE Utils - miscellaneous
 
         PROCEDURE Utf8To16(source: ARRAY OF CHAR;
             VAR dest: ARRAY OF CHAR): INTEGER;
-                преобразует символы строки source из кодировки UTF-8 в
-                кодировку UTF-16, результат записывает в строку dest,
-                возвращает количество 16-битных символов, записанных в dest
+                converts the characters of the string source from UTF-8 to
+                UTF-16, writes the result into the string dest and
+                returns the number of 16-bit characters written into dest
 
         PROCEDURE PutSeed(seed: INTEGER)
-                Инициализация генератора случайных чисел целым числом seed
+                Initializes the random number generator with the integer seed
 
         PROCEDURE Rnd(range: INTEGER): INTEGER
-                Целые случайные числа в диапазоне 0 <= x < range
+                Integer random numbers in the range 0 <= x < range
 
 ------------------------------------------------------------------------------
-MODULE WINAPI - привязки к некоторым API-функциям Windows
+MODULE WINAPI - bindings to some Windows API functions
