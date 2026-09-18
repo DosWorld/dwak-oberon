@@ -9,7 +9,7 @@ running programs in DOSBox / DOSBox-X. Updated as work progresses.
 1. What HX-DOS is
 --------------------------------------------------------------------------------
 
-HX is a freeware (Japheth) DOS extender and PE loader. It runs Win32 console
+HX is a freeware (by Japheth) DOS extender and PE loader. It runs Win32 console
 applications on plain MS-DOS/FreeDOS by emulating part of the Win32 API. HX
 replaces imported DLLs by name:
 
@@ -59,7 +59,7 @@ Verified facts (built/tested in DOSBox-X):
 
 The rest of the file system, measured one call at a time under DOSBox-X:
 
-- AH=716Ch  LFN open/create - works. DOSBox does not enforce the BX access
+- AX=716Ch  LFN open/create - works. DOSBox does not enforce the BX access
             bits, so a read handle can write; DOS.ob07 still asks for the
             right mode.
 - AH=3Fh/40h/42h  read/write/seek - work. CX is 16-bit, so DOS.ob07 chunks
@@ -124,7 +124,7 @@ DOS.ob07 - low level, no Win32 DLL imports:
         EAX*,EBX*,ECX*,EDX*,ESI*,EDI*,EBP*,ESP*: INTEGER;   (* 32-bit *)
         Flags*,ES*,DS*,FS*,GS*,CS*,SS*: WORD
     END;
-    Intr* (VAR r: Registers)  - executes int 21h with the registers from r
+    Intr* (VAR r: Registers)  - executes int 21 with the registers from r
         (via Exec21), preserving all registers incl. segments. There is no
         interrupt-number parameter: x86 spells `int` with an immediate, every
         DOS service here is int 21h, and DPMI has Exec31 of its own.
