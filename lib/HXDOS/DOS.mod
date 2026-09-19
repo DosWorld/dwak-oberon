@@ -33,16 +33,24 @@
     intercepts it - reflected, it reaches the real mode DOS, which terminates
     the extender's own stub and leaves this program running (see Exit).
 
-    Note: every name this layer hands to DOS goes through an LFN function -
+    Every name this layer hands to DOS goes through an LFN function first -
     open and create AH=716Ch, delete AH=7141h, attributes AH=7143h, mkdir and
-    rmdir AH=7139h/713Ah, the current directory AH=7147h - because the 8.3
-    forms do not cover every name a caller has. Measured under DOSBox-X: AH=41h
-    answers error 2, "file not found", for a long name that AH=7141h deletes,
-    while both forms delete a short name, so preferring the LFN call costs
-    nothing. The 8.3 forms are not broken here - AH=4300h was measured to
-    answer for a long name too - but that is the host translating the name for
-    them, and the LFN subfunctions are the ones a host is obliged to provide
-    (section 2 of doc/hxdos.txt has the measurements).
+    rmdir AH=7139h/713Ah, the current directory AH=7147h - and through the
+    classic 8.3 form of the same call when that one does not answer. The LFN
+    subfunctions are the only ones that reach a long name, and the 8.3 forms
+    are the only ones a DOS without LFN support has at all, so a layer that
+    wants to work on either has to carry both.
+
+    Which of the two is there cannot be asked in advance: there is no call that
+    reports LFN support, and a DOS that does not have the subfunctions answers
+    them with error 7100h, "function not supported" - the same carry flag and
+    the same shape of refusal as a name that is not there. What a long name
+    service does guarantee is that it returns with the carry flag clear when it
+    has run. The flag is therefore set before such a call and read after it:
+    clear means the call ran, set means it failed or was never there, and the
+    classic form goes behind it. Every LFN call here is written that way, and
+    the classic call it falls back to is entered with the flag clear, the way
+    any other DOS call is (section 2 of doc/hxdos.txt has the measurements).
 
     General registers are 32-bit (INTEGER); the low word is the 16-bit
     register (AX, BX, ...). Segment/flag fields are WORD, and the register
@@ -97,11 +105,16 @@ CONST
        terminator of its own. *)
     PSP_TAIL = 80H;
 
+    (* Bit 0 of the flags word. A call is entered with it set when the caller
+       has to know whether the service ran at all - see the module header. *)
+    CARRY = 1;
+
     (* The fields of the real mode call structure, at the offsets DPMI 0.9
        gives them: the 32-bit registers in the order EDI, ESI, EBP, a reserved
        dword, EBX, EDX, ECX, EAX, then the 16-bit flags, segment registers and
        the CS:IP and SS:SP the service is entered and left with. *)
-    RM_FLAGS_IN = 202H;                 (* interrupt enable, one trace flag *)
+    RM_FLAGS_IN = 202H;                 (* the interrupt enable, and bit 1,
+                                           which is one on every processor *)
 
 
 TYPE
@@ -207,7 +220,13 @@ END Int31;
    segment it is in. FS, GS and the CS:IP a real mode return would use are
    emptied, the call runs on the block's own stack, and it is entered with the
    flags of RM_FLAGS_IN - the flags it leaves behind carry the error, as they
-   do after any DOS call. *)
+   do after any DOS call.
+
+   The one flag the caller has a say in is the carry, bit 0: a service the
+   caller is not sure is there at all is entered with it set and judged by
+   whether the service cleared it, so the flag the caller passed in the
+   record's Flags field is carried into the call and the rest of the word
+   comes from RM_FLAGS_IN. *)
 PROCEDURE Intr* (int: INTEGER; VAR r: Registers);
 VAR
     q: Registers;
@@ -221,7 +240,7 @@ BEGIN
     rm.EDX := r.EDX MOD 10000H;
     rm.ECX := r.ECX MOD 10000H;
     rm.EAX := r.EAX MOD 10000H;
-    rm.Flags := WCHR(RM_FLAGS_IN);
+    rm.Flags := WCHR(RM_FLAGS_IN + ORD(r.Flags) MOD 2);
     IF ORD(r.ES) = 0 THEN rm.ES := WCHR(lowSeg) ELSE rm.ES := r.ES END;
     IF ORD(r.DS) = 0 THEN rm.DS := WCHR(lowSeg) ELSE rm.DS := r.DS END;
     rm.FS := WCHR(0); rm.GS := WCHR(0);
@@ -729,7 +748,12 @@ END Exit;
 (* LFN open. action: 1 = open existing, 0x12 = create/truncate. access is the
    DOS access word: 0 read only, 1 write only, 2 read and write, with sharing
    mode 0 (compatibility), the same combination the old AH=3Dh used. The name
-   goes in DS:ESI, so it is copied into the block and pointed at there. *)
+   goes in DS:ESI, so it is copied into the block and pointed at there.
+
+   AH=3Dh opens an existing file and AH=3Ch creates one; both take the name at
+   DS:DX instead of DS:ESI, which is the only difference that matters here,
+   and neither has anything to do with the action word, which is what tells
+   the two apart. *)
 PROCEDURE OpenLFN (name, access, action: INTEGER; VAR h: INTEGER);
 VAR
     r: Registers;
@@ -737,6 +761,7 @@ VAR
 BEGIN
     LowName(name);
     Zero(r);
+    r.Flags := WCHR(CARRY);
     r.EAX := 716CH;
     r.EBX := access;
     r.ECX := 0;                         (* attributes *)
@@ -744,6 +769,17 @@ BEGIN
     r.EDI := 0;                         (* no alias hint *)
     r.ESI := LOW_NAME;
     Intr(21H, r);
+    IF ORD(r.Flags) MOD 2 # 0 THEN
+        Zero(r);
+        IF action = 1 THEN
+            r.EAX := 3D00H + access MOD 256
+        ELSE
+            r.EAX := 3C00H
+        END;
+        r.ECX := 0;                     (* attributes, which only 3Ch reads *)
+        r.EDX := LOW_NAME;
+        Intr(21H, r)
+    END;
     IF ORD(r.Flags) MOD 2 # 0 THEN
         h := -1
     ELSE
@@ -774,11 +810,10 @@ END FileCreate;
    of the result marks a directory, which is how File.Exists and File.ExistsDir
    tell the two apart.
 
-   The LFN form for the same reason the rest of the names here are: the 8.3
-   AH=4300h was measured to answer for a long name under DOSBox-X - it returns
-   the same byte this one does, 32 (archive) for a file and 16 (directory) for
-   "." - but that is the host translating the name, and a host whose LFN driver
-   serves only the LFN subfunctions is the one this layer is written for. *)
+   AH=4300h is the same call for a host without LFN support and answers with
+   the same byte in the same register. The LFN form is measured to reach a long
+   name that the 8.3 form does not, and both are measured to answer for a short
+   one, so the LFN call is the one tried first. *)
 PROCEDURE FileAttr* (name: INTEGER; VAR a: INTEGER);
 VAR
     r: Registers;
@@ -786,9 +821,16 @@ VAR
 BEGIN
     LowName(name);
     Zero(r);
+    r.Flags := WCHR(CARRY);
     r.EAX := 7143H;
     r.EDX := LOW_NAME;
     Intr(21H, r);
+    IF ORD(r.Flags) MOD 2 # 0 THEN
+        Zero(r);
+        r.EAX := 4300H;
+        r.EDX := LOW_NAME;
+        Intr(21H, r)
+    END;
     IF ORD(r.Flags) MOD 2 # 0 THEN
         a := -1
     ELSE
@@ -801,11 +843,11 @@ END FileAttr;
    means a segment and an offset, so it is copied into the block like every
    other name.
 
-   The 8.3 form AH=41h is not the same call with a shorter name. Measured
-   under DOSBox-X with LFN on, it answers error 2, "file not found", for a long
-   name - while deleting the file's short alias succeeds - and the same file
-   goes away through AH=7141h. Both forms delete a short name, so this one
-   covers what the other did and the names it could not reach. *)
+   The 8.3 form AH=41h is not the same call with a shorter name: measured under
+   DOSBox-X with LFN on, it answers error 2, "file not found", for a long name
+   - while deleting the file's short alias succeeds - and the same file goes
+   away through AH=7141h. Both forms delete a short name, so the older call
+   behind the newer one covers every DOS that has no newer one. *)
 PROCEDURE FileDelete* (name: INTEGER): BOOLEAN;
 VAR
     r: Registers;
@@ -813,13 +855,22 @@ VAR
 BEGIN
     LowName(name);
     Zero(r);
+    r.Flags := WCHR(CARRY);
     r.EAX := 7141H;
     r.EDX := LOW_NAME;
     Intr(21H, r);
+    IF ORD(r.Flags) MOD 2 # 0 THEN
+        Zero(r);
+        r.EAX := 4100H;
+        r.EDX := LOW_NAME;
+        Intr(21H, r)
+    END;
     RETURN ORD(r.Flags) MOD 2 = 0
 END FileDelete;
 
 
+(* AH=7139h: make a directory, and AH=39h for a host without LFN support. The
+   name is at DS:EDX in both, so nothing moves but the function number. *)
 PROCEDURE MkDir* (name: INTEGER): BOOLEAN;
 VAR
     r: Registers;
@@ -827,13 +878,21 @@ VAR
 BEGIN
     LowName(name);
     Zero(r);
+    r.Flags := WCHR(CARRY);
     r.EAX := 7139H;
     r.EDX := LOW_NAME;
     Intr(21H, r);
+    IF ORD(r.Flags) MOD 2 # 0 THEN
+        Zero(r);
+        r.EAX := 3900H;
+        r.EDX := LOW_NAME;
+        Intr(21H, r)
+    END;
     RETURN ORD(r.Flags) MOD 2 = 0
 END MkDir;
 
 
+(* AH=713Ah removes a directory, AH=3Ah on a host that has no LFN form. *)
 PROCEDURE RmDir* (name: INTEGER): BOOLEAN;
 VAR
     r: Registers;
@@ -841,9 +900,16 @@ VAR
 BEGIN
     LowName(name);
     Zero(r);
+    r.Flags := WCHR(CARRY);
     r.EAX := 713AH;
     r.EDX := LOW_NAME;
     Intr(21H, r);
+    IF ORD(r.Flags) MOD 2 # 0 THEN
+        Zero(r);
+        r.EAX := 3A00H;
+        r.EDX := LOW_NAME;
+        Intr(21H, r)
+    END;
     RETURN ORD(r.Flags) MOD 2 = 0
 END RmDir;
 
@@ -994,9 +1060,10 @@ VAR
 BEGIN
     (* Two forms of "get current directory", LFN first: AH=7147h and, behind
        it, the older AH=47h for a host that does not carry the LFN services.
-       Both were measured to answer here; the second call is only made when the
-       first one fails. *)
+       The name is written to DS:ESI in both - there is no register to move -
+       and the second call is only made when the first one fails. *)
     Zero(r);
+    r.Flags := WCHR(CARRY);
     r.EAX := 7147H;
     r.EDX := drive + 1;
     r.ESI := LOW_NAME;
