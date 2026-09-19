@@ -4,7 +4,7 @@
 
         Command-line options
 
-  Input - text files of modules with the extension ".ob07", encoding ANSI or
+  Input - text files of modules with the extension ".mod", encoding ANSI or
 UTF-8 with a BOM signature.
   Output - an executable file of PE32, ELF or MENUET01/MSCOFF format.
   Parameters:
@@ -55,13 +55,13 @@ UTF-8 with a BOM signature.
 
   For example:
 
-  Compiler.exe "C:\example.ob07" win32con -out "C:\example.exe" -stk 1
-  Compiler.exe "C:\example.ob07" win32dll -out "C:\example.dll"
-  Compiler.exe "C:\example.ob07" win32gui -out "C:\example.exe" -stk 4
-  Compiler.exe "C:\example.ob07" win32con -out "C:\example.exe" -nochk pti
-  Compiler.kex "/tmp0/1/example.ob07" kosexe -out "/tmp0/1/example.kex" -stk 4
-  Compiler.kex "/tmp0/1/example.ob07" kosdll -out "/tmp0/1/mydll.obj" -ver 2.7
-  Compiler.exe "C:\example.ob07" linux32exe -out "C:\example" -stk 1 -nochk a
+  Compiler.exe "C:\example.mod" win32con -out "C:\example.exe" -stk 1
+  Compiler.exe "C:\example.mod" win32dll -out "C:\example.dll"
+  Compiler.exe "C:\example.mod" win32gui -out "C:\example.exe" -stk 4
+  Compiler.exe "C:\example.mod" win32con -out "C:\example.exe" -nochk pti
+  Compiler.kex "/tmp0/1/example.mod" kosexe -out "/tmp0/1/example.kex" -stk 4
+  Compiler.kex "/tmp0/1/example.mod" kosdll -out "/tmp0/1/mydll.obj" -ver 2.7
+  Compiler.exe "C:\example.mod" linux32exe -out "C:\example" -stk 1 -nochk a
 
   If compilation succeeds, the compiler returns exit code 0, otherwise 1.
 When the compiler runs under KolibriOS, no exit code is returned.
@@ -335,9 +335,9 @@ possible to reduce the use of type guards considerably.
 
 Examples:
 
-    IMPORT Math IN "./lib/math.ob07"; (* relative to the current module *)
+    IMPORT Math IN "./lib/math.mod"; (* relative to the current module *)
 
-    IMPORT M1 IN "C:\lib\math.ob07"; (* absolute path *)
+    IMPORT M1 IN "C:\lib\math.mod"; (* absolute path *)
 
 ------------------------------------------------------------------------------
         Imported procedures

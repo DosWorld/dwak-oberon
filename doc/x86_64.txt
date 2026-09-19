@@ -4,7 +4,7 @@
 
         Command line options
 
-  Input - text files of modules with the ".ob07" extension, ANSI or UTF-8
+  Input - text files of modules with the ".mod" extension, ANSI or UTF-8
 encoding with a BOM signature.
   Output - an executable file in the PE32+ or ELF64 format.
   Parameters:
@@ -52,9 +52,9 @@ encoding with a BOM signature.
 
   For example:
 
-  Compiler.exe "C:\example.ob07" win64con -out "C:\example.exe" -stk 1
-  Compiler.exe "C:\example.ob07" win64dll -out "C:\example.dll" -nochk pti
-  Compiler "source/Compiler.ob07" linux64exe -out "source/Compiler" -nochk a
+  Compiler.exe "C:\example.mod" win64con -out "C:\example.exe" -stk 1
+  Compiler.exe "C:\example.mod" win64dll -out "C:\example.dll" -nochk pti
+  Compiler "source/Compiler.mod" linux64exe -out "source/Compiler" -nochk a
 
   On successful compilation the compiler returns exit code 0, otherwise 1.
 
@@ -325,9 +325,9 @@ frequency of use of the type guard to be considerably reduced.
 
 Examples:
 
-    IMPORT Math IN "./lib/math.ob07"; (* relative to the current module *)
+    IMPORT Math IN "./lib/math.mod"; (* relative to the current module *)
 
-    IMPORT M1 IN "C:\lib\math.ob07"; (* absolute path *)
+    IMPORT M1 IN "C:\lib\math.mod"; (* absolute path *)
 
 ------------------------------------------------------------------------------
         Imported procedures

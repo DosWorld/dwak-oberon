@@ -1,0 +1,107 @@
+﻿(*
+    Example for STM32L152C-DISCO
+
+    The LEDs blink on an interrupt from the system timer.
+*)
+
+MODULE SysTick;
+
+IMPORT SYSTEM;
+
+
+CONST
+
+    GPIOB = 40020400H;
+        GPIOBMODER   = GPIOB;
+        GPIOBOTYPER  = GPIOB + 04H;
+        GPIOBOSPEEDR = GPIOB + 08H;
+        GPIOBPUPDR   = GPIOB + 0CH;
+        GPIOBIDR     = GPIOB + 10H;
+        GPIOBODR     = GPIOB + 14H;
+        GPIOBBSRR    = GPIOB + 18H;
+        GPIOBLCKR    = GPIOB + 1CH;
+        GPIOBAFRL    = GPIOB + 20H;
+        GPIOBAFRH    = GPIOB + 24H;
+        GPIOBBRR     = GPIOB + 28H;
+
+
+    RCC = 40023800H;
+        RCC_CR      = RCC;
+        RCC_AHBENR  = RCC + 1CH;
+        RCC_APB2ENR = RCC + 20H;
+        RCC_APB1ENR = RCC + 24H;
+
+
+    STK = 0E000E010H;
+        STK_CTRL = STK;
+            ENABLE    = {0};
+            TICKINT   = {1};
+            CLKSOURCE = {2};
+
+        STK_LOAD  = STK + 04H;
+        STK_VAL   = STK + 08H;
+        STK_CALIB = STK + 0CH;
+
+
+    SCB_SCR = 0E000ED00H + 10H;
+        SLEEPONEXIT = {1};
+        SLEEPDEEP   = {2};
+        SEVONPEND   = {4};
+
+
+    Blue  = 6;
+    Green = 7;
+
+
+VAR
+
+    x: SET; state: BOOLEAN;
+
+
+(* interrupt handler for the System tick timer *)
+PROCEDURE tick [15];
+BEGIN
+    state := ~state;
+    (* turn the LEDs on or off *)
+    SYSTEM.PUT(GPIOBBSRR, {Blue + 16 * ORD(state)});
+    SYSTEM.PUT(GPIOBBSRR, {Green + 16 * ORD(state)})
+END tick;
+
+
+PROCEDURE [code] wfi
+    0BF30H; (* wfi *)
+
+
+PROCEDURE sleep;
+VAR
+    x: SET;
+
+BEGIN
+    REPEAT
+        (* configure sleep mode *)
+        SYSTEM.GET(SCB_SCR, x);
+        SYSTEM.PUT(SCB_SCR, x - SLEEPDEEP);
+
+        (* wait for an interrupt *)
+        wfi
+    UNTIL FALSE
+END sleep;
+
+
+BEGIN
+    state := TRUE;
+
+    (* enable GPIOB *)
+    SYSTEM.GET(RCC_AHBENR, x);
+    SYSTEM.PUT(RCC_AHBENR, x + {1});
+
+    (* configure PB6 and PB7 as output *)
+    SYSTEM.GET(GPIOBMODER, x);
+    SYSTEM.PUT(GPIOBMODER, x + {12, 14} - {13, 15});
+
+    (* configure and start SysTick *)
+    SYSTEM.PUT(STK_LOAD, 1048576);
+    SYSTEM.PUT(STK_CTRL, ENABLE + TICKINT + CLKSOURCE);
+
+    sleep
+END SysTick.
