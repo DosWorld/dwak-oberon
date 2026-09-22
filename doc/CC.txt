@@ -17,9 +17,14 @@ syntax:
 
         WINDOWS   - Windows application
         LINUX     - Linux application
-        KOLIBRIOS - KolibriOS application
-        CPU_X86   - application for the x86 (32-bit) processor
-        CPU_X8664 - application for the x86_64 processor
+        DOS       - DOS application
+        DPMI32    - DPMI32 application
+        CPU_I386  - application for the x86 (32-bit) processor
+        CPU_AMD64 - application for the x86_64 processor
+
+        BITS_16   - 16 bit CPU
+        BITS_32   - 32 bit CPU
+        BITS_64   - 64 bit CPU
 
 
 examples:
@@ -43,18 +48,18 @@ examples:
 
 
     $IF (WINDOWS)
-        $IF (CPU_X86)
+        $IF (CPU_I386)
         (*windows 32*)
 
-        $ELSIF (CPU_X8664)
+        $ELSIF (CPU_AMD64)
         (*windows 64*)
 
         $END
     $ELSIF (LINUX)
-        $IF (CPU_X86)
+        $IF (CPU_I386)
         (*linux 32*)
 
-        $ELSIF (CPU_X8664)
+        $ELSIF (CPU_AMD64)
         (*linux 64*)
 
         $END

@@ -1,12 +1,12 @@
 ﻿        Oberon-07/16 programming language compiler for i486
-                Windows/Linux/KolibriOS.
+                Windows/Linux.
 ------------------------------------------------------------------------------
 
         Command-line options
 
   Input - text files of modules with the extension ".mod", encoding ANSI or
 UTF-8 with a BOM signature.
-  Output - an executable file of PE32, ELF or MENUET01/MSCOFF format.
+  Output - an executable file of PE32 or ELF format.
   Parameters:
   1) name of the main module
   2) application type
@@ -15,8 +15,6 @@ UTF-8 with a BOM signature.
       "win32dll" - Windows DLL
       "linux32exe" - Linux ELF-EXEC
       "linux32so"  - Linux ELF-SO
-      "kosexe" - KolibriOS
-      "kosdll" - KolibriOS DLL
 
   3) optional options
       -out <file_name> name of the resulting file; by default it
@@ -32,7 +30,7 @@ UTF-8 with a BOM signature.
       -upper upper case only for keywords and predefined
           identifiers
       -def <name> define a conditional compilation symbol
-      -ver <major.minor> program version (kosdll only)
+      -ver <major.minor> program version
       -uses print the list of imported modules
       -fa <size> alignment of PE32 file sections in bytes, possible values:
           512, 1024, 2048, 4096. 512 by default
@@ -59,12 +57,9 @@ UTF-8 with a BOM signature.
   Compiler.exe "C:\example.mod" win32dll -out "C:\example.dll"
   Compiler.exe "C:\example.mod" win32gui -out "C:\example.exe" -stk 4
   Compiler.exe "C:\example.mod" win32con -out "C:\example.exe" -nochk pti
-  Compiler.kex "/tmp0/1/example.mod" kosexe -out "/tmp0/1/example.kex" -stk 4
-  Compiler.kex "/tmp0/1/example.mod" kosdll -out "/tmp0/1/mydll.obj" -ver 2.7
   Compiler.exe "C:\example.mod" linux32exe -out "C:\example" -stk 1 -nochk a
 
   If compilation succeeds, the compiler returns exit code 0, otherwise 1.
-When the compiler runs under KolibriOS, no exit code is returned.
 
 ------------------------------------------------------------------------------
         Differences from the original
@@ -374,10 +369,6 @@ Examples:
       ExitProcess: PROCEDURE [windows] (code: INTEGER);
       con_exit:    PROCEDURE [stdcall] (bCloseWindow: BOOLEAN);
 
-  In KolibriOS, procedures can be imported only from libraries located
-  in /sys/lib. It is not necessary to import and call the library
-  initialization functions (lib_init, START).
-
   For Linux, imported procedures are not implemented.
 
 ------------------------------------------------------------------------------
@@ -407,7 +398,7 @@ operations (type test and type guard, string comparison, runtime error messages
 and others) as calls to procedures of this module. These procedures should not
 be called explicitly.
   Runtime error messages are output in dialog boxes (Windows), to the terminal
-(Linux), to the debug board (KolibriOS).
+(Linux).
 
 ------------------------------------------------------------------------------
         The API module
@@ -423,11 +414,3 @@ provides the interface between RTL and the OS.
 the main module of the program, and its name must be marked with the export
 symbol ("*"). Procedures that are imported from other dll libraries cannot be
 exported.
-
-  KolibriOS DLLs always export the identifiers "version" (program version) and
-"lib_init" - the address of the DLL initialization procedure:
-
-        PROCEDURE [stdcall] lib_init (): INTEGER
-
-This procedure must be called before using the DLL.
-The procedure always returns 1.

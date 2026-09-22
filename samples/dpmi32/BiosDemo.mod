@@ -3,7 +3,7 @@
 (* The BIOS, reached through the same call DOS goes through.
 
    A protected mode program cannot execute a real mode interrupt itself, so
-   lib/HXDOS asks the DPMI host to simulate one (int 31h AX=0300h) and the
+   lib/dpmi32 asks the DPMI host to simulate one (int 31h AX=0300h) and the
    number travels in a register: that is why DOS.Intr takes the interrupt
    number as its first argument, and why int 10h, int 11h and int 1Ah are
    reached exactly as int 21h is. Nothing here is a DOS service and nothing

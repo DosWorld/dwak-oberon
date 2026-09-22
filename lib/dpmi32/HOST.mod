@@ -100,7 +100,7 @@ VAR
 
 BEGIN
     (* arg0: synthesized as <current dir>\Compiler.exe; only the directory
-       matters, it is used to locate lib/HXDOS. *)
+       matters, it is used to locate lib/dpmi32. *)
     argv[0][0] := 0X;
     Append(argv[0], "Compiler.exe");
     argc := 1;

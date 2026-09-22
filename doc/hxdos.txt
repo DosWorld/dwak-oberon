@@ -2,7 +2,7 @@
                           HX-DOS: knowledge base
 ================================================================================
 
-Internal reference for the `hxdos` target, lib/HXDOS, base relocations and
+Internal reference for the `dpmi32pe` target, lib/dpmi32, base relocations and
 running programs in DOSBox / DOSBox-X. Updated as work progresses.
 
 --------------------------------------------------------------------------------
@@ -34,11 +34,11 @@ needed at build time.
 
 Verified facts (built/tested in DOSBox-X):
 
-- DPMIST32.BIN + normal PE signature ("PE") is used for the hxdos target.
+- DPMIST32.BIN + normal PE signature ("PE") is used for the dpmi32pe target.
   DPMILD32 loads the image; KERNEL32 (if imported) maps to DKRNL32.
 - Direct `int 21h` from the HX client DOES work (DKRNL32 itself uses direct
   int 21h; see SrcEmu/DKRNL32/CREFILE.ASM, READFILE.ASM, GETCMDL.ASM). A DOS
-  service is not reached that way here: lib/HXDOS issues every real mode
+  service is not reached that way here: lib/dpmi32 issues every real mode
   interrupt through the DPMI reflection (int 31h AX=0300h), so one call covers
   DOS, the BIOS and anything else (section 3). Only the loader API of the
   extender - AX=4B00h and friends, answered in protected mode - is still
@@ -60,7 +60,7 @@ Verified facts (built/tested in DOSBox-X):
   by asking the host to simulate it (int 31h AX=0300h, the number in BL), so
   the number is data rather than an instruction and DOS, the BIOS and anything
   else are one call (section 3). DPMI itself is not real mode and is not
-  reflected: lib/HXDOS has a second, private procedure that is a plain
+  reflected: lib/dpmi32 has a second, private procedure that is a plain
   `int 31h` for it.
 - int 31h (DPMI) IS reachable, directly: AX=0400h returns version 0x005A
   (DPMI 0.90).
@@ -175,7 +175,7 @@ of it is worth reading:
   not one, so the probe interleaves a write, a read and some output.
 
 --------------------------------------------------------------------------------
-3. lib/HXDOS (zero imports)
+3. lib/dpmi32 (zero imports)
 --------------------------------------------------------------------------------
 
 DOS.mod - low level, no Win32 DLL imports:
@@ -230,7 +230,7 @@ DOS.mod - low level, no Win32 DLL imports:
       already written and correct, and the program never returned to the
       shell. Every sample still exited cleanly, because
       they reach the exit through RTL._exit, which is a hand-written
-      `mov ah,4Ch; int 21h` of its own (lib/HXDOS/API.mod, DosExit), and it
+      `mov ah,4Ch; int 21h` of its own (lib/dpmi32/API.mod, DosExit), and it
       was the compiler's own UTILS.Exit -> HOST.ExitProcess -> DOS.Exit path
       that hung. Two exits in one runtime, and only one of them was tested by
       the samples.
@@ -378,7 +378,7 @@ with NULL, a NULL command line being what made Args report a two-character
 program name. With Args rebuilt on the loader's own module path (section 2),
 nothing imported it, so the file was deleted rather than left behind.
 
-The hxdos libraries now import no DLL at all. The .idata section holds nothing
+The dpmi32pe libraries now import no DLL at all. The .idata section holds nothing
 but the terminating null descriptor, so the list the loader walks is empty
 after its first entry; the optional header still carries an import data
 directory, pointing at that descriptor with a size of one entry, which is what
@@ -388,10 +388,10 @@ an empty import table looks like.
 4. Base relocations
 --------------------------------------------------------------------------------
 
-x86 PE targets (win32* and hxdos) are compiled NON-PIC; PE32.fixup handles the
+x86 PE targets (win32* and dpmi32pe) are compiled NON-PIC; PE32.fixup handles the
 absolute opcodes RCODE/RDATA/RBSS/RIMP and a .reloc section
-(IMAGE_REL_BASED_HIGHLOW) is written. Linux32 (ELF) stays PIC; KolibriOS and
-AMD64/win64 are unchanged (win64 stays PIC without .reloc).
+(IMAGE_REL_BASED_HIGHLOW) is written. Linux32 (ELF) stays PIC; AMD64/win64 are
+unchanged (win64 stays PIC without .reloc).
 
 --------------------------------------------------------------------------------
 5. Running in DOSBox
@@ -412,13 +412,13 @@ AMD64/win64 are unchanged (win64 stays PIC without .reloc).
 One thing to know before building: a compiler looks for `lib\` beside itself.
 source/Compiler.mod:210 takes the directory of `argv[0]`, appends
 `lib/<LibDir>/` and resolves the result against the current directory. The
-`Compiler.exe` shipped in the repo root carries the `hxdos` and `hxdosdll`
+`Compiler.exe` shipped in the repo root carries the `dpmi32pe` and `dpmi32dll`
 targets, so SelfHXDOS.cmd drives it directly.
 
 On this target both halves of that lookup come out degenerate, and `lib\` ends
 up relative to the **current directory**:
 
-- `HOST.GetArg(0)` does not read the program name - lib/HXDOS/HOST.mod:92 sets
+- `HOST.GetArg(0)` does not read the program name - lib/dpmi32/HOST.mod:92 sets
   `argv[0]` to the constant `Compiler.exe`, so the directory of `argv[0]` is
   empty;
 - `HOST.GetCurrentDirectory` returns an empty string (HOST.mod:148 sets
@@ -429,17 +429,17 @@ up relative to the **current directory**:
   the lookup relative to the current directory, which is the behaviour the
   compiler is built around.
 
-So `lib_path` is the literal `lib\HXDOS\`, and the compiler must be started from
+So `lib_path` is the literal `lib\dpmi32\`, and the compiler must be started from
 a directory that holds `lib\` - it does not matter where the binary itself is.
-The repo root is such a directory, and that is why the hxdos compiler ships
-there, as `hxcomp.exe`. Start it with the repo root as the current directory and
+The repo root is such a directory, and that is why the dpmi32pe compiler ships
+there, as `dpmicomp.exe`. Start it with the repo root as the current directory and
 nothing has to be copied. The scratch directory the runs in section 9 are made
 in, C:\dos\c\HXC2, is the other way round and shows that the binary's own
 location does not matter: the compiler there is `C:\HXC2\HXNEW.EXE`, outside the
 tree, and it still finds `lib\` because the batch that starts it changes to the
 repo mount (`G:`) first.
 
-The name has to be 8.3, which is the reason for `hxcomp.exe` and not
+The name has to be 8.3, which is the reason for `dpmicomp.exe` and not
 `hxCompiler.exe`. A longer name is not started at all: DOSBox-X opens the file
 for EXEC, but the loader is handed the 8.3-mangled name and cannot reopen it,
 
@@ -449,7 +449,7 @@ for EXEC, but the loader is handed the 8.3-mangled name and cannot reopen it,
 whereas the same binary copied to `hxc.exe` compiles HelloHX from the repo root
 ("3449 lines, 12800 bytes") and the result prints its "Hi". Long `.mod` names
 are unaffected: the compiler opens those itself,
-through the LFN calls in lib/HXDOS/DOS.
+through the LFN calls in lib/dpmi32/DOS.
 
 Three things learned the hard way:
 
@@ -462,7 +462,7 @@ Three things learned the hard way:
   and `-c "MOUNT G /c/dev/oberon-07-compiler"` - the msys form of the same
   path - is accepted without complaint and mounts nothing: the drive letter
   does not exist, so the `G:` that follows it is ignored, the current directory
-  stays on C:, and the compiler fails with `file lib\HXDOS\RTL.mod not found`,
+  stays on C:, and the compiler fails with `file lib\dpmi32\RTL.mod not found`,
   which reads like a missing library rather than a missing drive. The two forms
   differ only in the drive prefix; `MOUNT G C:\dev\oberon-07-compiler` works.
 
@@ -533,14 +533,14 @@ unlink for the surgery and freeUpTo to hand back the commands code generation
 has already walked past; the back ends move strictly forwards and never look
 back, so each node is dead by the time the next one is reached.
 
-Measured on a self-host of source/Compiler.mod to hxdos: 105349 commands in
+Measured on a self-host of source/Compiler.mod to dpmi32pe: 105349 commands in
 103 chunks. They used to be 105349 separate heap blocks of 56 bytes each; a CMD
 is 32 bytes on the 32-bit targets, so the same build now needs 3.4 MB instead of
 5.9 MB and the allocator sees 103 blocks instead of 105349. The file names
 opFNAME points at live in codes.names, a CHL.BYTELIST, not in the commands
 themselves, so nothing needed special-casing.
 
-The three back ends that keep a code list of their own use the same shape. X86,
+The three back ends that keep a code list of their own use the same shape. I386,
 THUMB and MSP430 each have one flat node record with a `kind` field as the
 discriminator - tCODE/tLABEL/tJMP/tJCC/tCALL/tRELOC on x86, tWORD/tLABEL/tJMP/
 tCALL/tRELOC on MSP430 - carved out of chunks of 1024 exactly as above and
@@ -553,20 +553,20 @@ SLOTS], so a walk reads
     END
 
 instead of traversing a linked list of differently typed records. AMD64 emits
-through X86 and shares its arena; RVMxI keeps no list at all.
+through I386 and shares its arena; RVMxI keeps no list at all.
 
 --------------------------------------------------------------------------------
-7. DLLs: the hxdosdll target, loading, and the one heap
+7. DLLs: the dpmi32dll target, loading, and the one heap
 --------------------------------------------------------------------------------
 
-`hxdosdll` emits a PE DLL instead of a console EXE. It is the same pipeline
+`dpmi32dll` emits a PE DLL instead of a console EXE. It is the same pipeline
 with three differences: PE32.writeHX is told dll = TRUE, which sets
 IMAGE_FILE_DLL and selects the six-section layout `write` already used for
 win32dll (ImageBase 10000000h, .text/.data/.bss/.idata/.edata, plus .reloc
 whenever there are relocations); prolog pushes the three DllMain arguments the
 loader left on the stack and calls RTL._dllentry; epilog ends at the dllret
 label with EAX = 1, leave, ret 12 instead of the _exit call. Only `*`-marked
-procedures of the main module are exported - TARGETS.HXDOSDLL is a member of
+procedures of the main module are exported - TARGETS.DPMI32DLL is a member of
 the `Dll` set that gates it.
 
 What the entry point answers is a reason, not a yes or a no, and prolog reads
@@ -594,7 +594,7 @@ What the loader requires, from HX-2.23/Src/DPMILDR/PELOAD.ASM:
   DllMain. On DLL_PROCESS_ATTACH the load is abandoned unless EAX comes back
   non-zero; the code is `cmp eax,1 / jc error_dll_initfailed`, i.e. only EAX ==
   0 fails, although DPMILD32.TXT words it as "EAX != 1" (the `jnz` is commented
-  out in the source). lib/HXDOS/API.dllentry answers 1 for attach only and
+  out in the source). lib/dpmi32/API.dllentry answers 1 for attach only and
   dispatches the other three reasons to the SetDll callbacks, so the module
   bodies do not run a second time at Free;
 - a DLL is allocated wherever there is room and rebased, unless
@@ -616,7 +616,7 @@ What the loader requires, from HX-2.23/Src/DPMILDR/PELOAD.ASM:
   message, is what identifies a failure. AX = 000Bh out of 4B00h with the DLL's
   entry point never reached is what section 7's last paragraph is about.
 
-The loader API is in lib/HXDOS/DOS.mod, next to GetModuleName, and is int 21h
+The loader API is in lib/dpmi32/DOS.mod, next to GetModuleName, and is int 21h
 direct - a program that loads a DLL imports nothing to do it:
 
     Load(name)         AX=4B00h             -> handle, 0 on failure
@@ -658,14 +658,14 @@ the unit that imported it), the DLL name is upper-cased by the parser, and the
 symbol name is taken from the declaration when the third element is empty.
 default32 is callee-clean-up on x86 - which is exactly what the [windows-]
 stdcall the import declares means - so a plain `*`-exported Oberon procedure
-can be imported and called as it stands. samples/HXDOS/DllStatic is that.
+can be imported and called as it stands. samples/dpmi32/DllStatic is that.
 
 One heap per process, and it belongs to the EXE. A DLL has none of its own:
 whatever is still free when it starts is what the EXE could not take, and a
 heap built on that would be reachable from neither. So the EXE exports its
 allocator and the DLL resolves it off the main module at attach.
 
-- X86.epilog exports it for target HXDOS as `new` and `dispose`, naming
+- I386.epilog exports it for target DPMI32PE as `new` and `dispose`, naming
   RTL._heapnew / RTL._heapdispose. Those are wrappers around API._NEW /
   API._DISPOSE with the (size): INTEGER and (p): INTEGER shape the DLL calls.
   What must NOT be exported is IL.codes.rtl[IL._new]: that is
@@ -698,12 +698,12 @@ the only strings of their length in that section. Run that EXE with the DLL besi
 contract existed:
 
     DllDemo: heap at 4231168 size 127176704
-    hxdos: DLL needs an EXE that exports new/dispose
+    dpmi32pe: DLL needs an EXE that exports new/dispose
     DllDemo: cannot load DLLLIB.DLL
     DllDemo: done
 
     DllDemo: heap at 4231168 size 127176704
-    hxdos: DLL needs an EXE that exports new/dispose
+    dpmi32pe: DLL needs an EXE that exports new/dispose
     DllDemo: DLLLIB.DLL at 2256896
     DllDemo: DLL gave 131407892 - OUTSIDE the EXE heap
 
@@ -802,7 +802,7 @@ PE loader, which in turn starts a DPMI host if the machine has none. So a
 generated EXE has to travel with HX's runtime, and a program that uses DLLs
 with one more file of its own.
 
-The whole of it, for a console program built with `hxdos` or `hxdosdll`:
+The whole of it, for a console program built with `dpmi32pe` or `dpmi32dll`:
 
     DPMILD32.EXE    the PE loader the stub starts, found through PATH
     HDPMI32.EXE     the DPMI host the loader starts, next to the loader
@@ -811,7 +811,7 @@ The whole of it, for a console program built with `hxdos` or `hxdosdll`:
 
 That is all. Nothing of the Win32 emulation is needed: DKRNL32, DUSER32,
 DGDI32, DADVAPI, DDDRAW, OLE32, VERSION, VESA32 and the rest exist to satisfy
-DLL imports, and a lib/HXDOS program has none - its .idata is the single null
+DLL imports, and a lib/dpmi32 program has none - its .idata is the single null
 descriptor that terminates the import list and nothing else. Neither is
 DPMIST32.BIN, which is only used to stamp an *unstubbed* PE file, nor
 DPMILD32.BIN, nor DPMILD16.EXE, nor any of the tools (DPMI.EXE, PESTUB.EXE,
@@ -903,7 +903,7 @@ Two more things worth knowing when the set is assembled by hand:
   is already there. See HXRT.TXT section 5 for the table of which hosts work;
 - if the program's DLL has the same name as one of HX's emulation DLLs
   (KERNEL32.DLL and friends), do not put a Windows system directory ahead of
-  the program's own in PATH. Nothing in lib/HXDOS collides, but a mixed
+  the program's own in PATH. Nothing in lib/dpmi32 collides, but a mixed
   directory can.
 
 --------------------------------------------------------------------------------
@@ -916,11 +916,11 @@ session the programs ran one after another without restarting the emulator -
 which is the case that used to fail.
 
 Done:
-- base relocations for win32 + hxdos (including forced rebase);
-- hxdos target registered; DPMIST32.BIN hardcoded; PE32.writeHX;
-- lib/HXDOS on DOS and DPMI only: DOS.Intr + Registers, DPMI memory (sized
+- base relocations for win32 + dpmi32pe (including forced rebase);
+- dpmi32pe target registered; DPMIST32.BIN hardcoded; PE32.writeHX;
+- lib/dpmi32 on DOS and DPMI only: DOS.Intr + Registers, DPMI memory (sized
   from the host, section 3), LFN file I/O, console, args, exit, UnixTime;
-- **the compiler built for hxdos has ZERO DLL imports**. The import
+- **the compiler built for dpmi32pe has ZERO DLL imports**. The import
   directory entry is present - PE32 always emits the section, so .idata is
   there - but it points at a single 20-byte IMAGE_IMPORT_DESCRIPTOR whose
   every field is zero, which is the null descriptor that terminates a list
@@ -970,11 +970,11 @@ Done:
   with the name. Build the Windows side with a compiler compiled from those
   same sources: a shipped Compiler.exe older than the working tree differs
   from the current source by much more than the timestamp - the one that
-  predated the hxdos work emitted no .reloc section for 32-bit targets and
+  predated the dpmi32pe work emitted no .reloc section for 32-bit targets and
   larger code - which looks like a DOS-versus-Windows difference and is not.
 
   What is out of reach from there is the *64-bit* targets. `win64con` comes
-  back as `bad parameter <target>`, which is not a DOS problem: the hxdos
+  back as `bad parameter <target>`, which is not a DOS problem: the dpmi32pe
   compiler is a 32-bit program, so UTILS.bit_depth is 32, and
   source/Compiler.mod refuses a target whose TARGETS.BitDepth is larger than
   the compiler's own with that same error (the check is
@@ -984,11 +984,11 @@ Done:
   build can produce. Anything with cpuAMD64 - win64*, linux64*, rvm64i -
   needs a 64-bit compiler, and the repo has one on Windows (Compiler.exe).
 - **the self-host reaches a fixpoint**:
-      HXNEW.EXE source\Compiler.mod hxdos -out C:\HXC2\N\hxcomp.exe -stk 2 -fa 512
+      HXNEW.EXE source\Compiler.mod dpmi32pe -out C:\HXC2\N\dpmicomp.exe -stk 2 -fa 512
       -> "30177 lines, 2.00 sec, 293888 bytes"
   all 38 modules plus codegen and link, and then the compiler it wrote does the
   same thing again:
-      GEN1.EXE  source\Compiler.mod hxdos -out C:\HXC2\N\hxcomp.exe -stk 2 -fa 512
+      GEN1.EXE  source\Compiler.mod dpmi32pe -out C:\HXC2\N\dpmicomp.exe -stk 2 -fa 512
       -> "30177 lines, 2.00 sec, 293888 bytes"
   (GEN1.EXE is a copy of the first generation, so both runs were given the same
   -out name and the two files are directly comparable.) Nothing differs but the
@@ -1000,7 +1000,7 @@ Done:
   for byte the same. The tree it ran on carries the new source extension:
   `.mod` has replaced `.ob07` (`UTILS.FILE_EXT`, 161 files renamed, an `.ob07`
   input now refused with error 207), and this fixpoint is what says the rename
-  was complete - the compiler's own sources, lib\HXDOS and the samples all
+  was complete - the compiler's own sources, lib\dpmi32 and the samples all
   moved together, and the 16 Windows samples still hash to the values
   checkgolden.sh records. The clock is an input to the compilation rather than a
   result of it, so the compiler is a fixed point of itself on this target.
@@ -1025,19 +1025,19 @@ Done:
   revision difference (see the win32con bullet below);
 
   The -out name has to match because it is *in* the image. It goes into .data
-  as a NUL-padded string, and an hxdos EXE exports new/dispose, so its export
+  as a NUL-padded string, and an dpmi32pe EXE exports new/dispose, so its export
   directory's Name field points at that same string. What is stored is the
   output file name with the directory part stripped at a backslash, as DOS
-  writes one - `-out C:\HXC2\N\hxcomp.exe` embeds `hxcomp.exe`, while `-out
+  writes one - `-out C:\HXC2\N\dpmicomp.exe` embeds `dpmicomp.exe`, while `-out
   bin/TMP.EXE`, with a forward slash and no backslash anywhere, keeps the
   whole path - and it is stored whole, as on the other targets. A build given
   a different name differs in that string, and in both TimeDateStamps: a
   handful of bytes that look like a code difference and are not;
 - the compiler frees its IL and symbol tables when a compilation finishes
   (IL.Free / PROG.Free), so a long-lived process does not grow per unit;
-- **the `hxdosdll` target and dynamic loading** (section 7). A DLL is built by
-  `compiler samples\HXDOS\Dll\DllLib.mod hxdosdll -out DLLLIB.DLL`; a program
-  loads one with the loader API in lib/HXDOS/DOS (direct int 21h, no import),
+- **the `dpmi32dll` target and dynamic loading** (section 7). A DLL is built by
+  `compiler samples\dpmi32\Dll\DllLib.mod dpmi32dll -out DLLLIB.DLL`; a program
+  loads one with the loader API in lib/dpmi32/DOS (direct int 21h, no import),
   or is linked against one with a `[windows-, DLLLIB.DLL, ""]` import. The two
   samples, DllDemo (dynamic) and DllStatic (link-time), both run in DOSBox-X
   and both allocators come out shared: a record the DLL allocates lies inside
@@ -1051,16 +1051,16 @@ Done:
 - Windows targets are unaffected: `checkgolden.sh` prints ALL GOLDEN OK for
   the win64con sample set, and the win64 self-host fixpoint is exact
   (identical md5);
-- the compiler ships as `hxcomp.exe` in the repo root, and it is a build of
+- the compiler ships as `dpmicomp.exe` in the repo root, and it is a build of
   these same sources: 30177 lines and 293888 bytes, the same numbers the DOS
-  fixpoint above reports. Building the tree again with `-out hxcomp.exe` gives
+  fixpoint above reports. Building the tree again with `-out dpmicomp.exe` gives
   normhash.sh 206dcef2542e72c64e1b7d9e56bacb52, which is the shipped file's own
   hash: the binary in the repo is exactly what the sources produce. That is the
   same hash the fixpoint above prints, because those builds were given
-  `-out C:\HXC2\N\hxcomp.exe`, which embeds the same `hxcomp.exe`; a run given
+  `-out C:\HXC2\N\dpmicomp.exe`, which embeds the same `dpmicomp.exe`; a run given
   `-out HXNEW.EXE` would normalise differently, the name being in the image.
-  SelfHXDOS.cmd (Windows) and `make hxdos` rebuild it in place, and
-  `make hxdossamples` builds the samples and the DLL into bin/hxdos. The name is 8.3
+  SelfHXDOS.cmd (Windows) and `make dpmi32pe` rebuild it in place, and
+  `make dpmi32samples` builds the samples and the DLL into bin/dpmi32. The name is 8.3
   because the loader will not start a longer one (section 5);
 - the other three root binaries were rebuilt from these same sources, so they
   carry the two new targets as well: Compiler.exe 323072 bytes (win64con,
@@ -1079,7 +1079,7 @@ Done:
   two runs given the same -out name produce identical files;
 - it is started from the repo root, as a check that the shipped binary is the
   one that works: with the repo mounted and the root as the current directory,
-  `hxcomp.exe samples\HXDOS\HelloHX.mod hxdos -out C:\HXC2\N\HELLO.EXE -stk 2
+  `dpmicomp.exe samples\dpmi32\HelloHX.mod dpmi32pe -out C:\HXC2\N\HELLO.EXE -stk 2
   -fa 512` reports "3449 lines, 0.00 sec, 12800 bytes" and the HELLO.EXE it
   writes prints "Hi". The measurements above were taken in C:\dos\c\HXC2, a
   scratch directory of programs and batch files beside the repo mount, and not
@@ -1089,7 +1089,7 @@ No markers or debug code remain in source.
 Also done, and this was the last open item: **the Win32 imports of user
 programs** (section 3). `Console`, `File`, `DateTime`, `Args`, `In` and `Out`
 were rebuilt on DOS, the loader and video memory, and `WINAPI.mod` was
-deleted. Every hxdos binary now names no *system* DLL - its import table is
+deleted. Every dpmi32pe binary now names no *system* DLL - its import table is
 the single null descriptor and nothing else - which was checked on the
 compiler, the samples and the DOS-built generations alike. The one
 exception is DllStatic, and it is the point of that sample: its import table
@@ -1132,7 +1132,7 @@ reads the CRTC back through the ports after calling Console.SetCursor:
 so the visible cursor moves with the reported one, without a BIOS call.
 
 The scratch programs under C:\dos\c\HXC (HXC, HXT, HXI, P0-P11) are test
-scaffolding and are not part of the repo; the five samples in samples\HXDOS
+scaffolding and are not part of the repo; the five samples in samples\dpmi32
 are. Two of those probes reported failures that were their own: one was a
 stale .EXE - the same source rebuilt against the current library printed
 everything correctly - and one read a CRTC register back too soon after
@@ -1144,7 +1144,7 @@ binaries. Both were rebuilt from these sources, and each was built twice with
 the same -out name, which produced identical files - unlike the PE targets,
 whose images carry a timestamp - but neither can be executed on this host (no
 WSL, no KolibriOS), so nothing beyond the build is claimed for them. Nothing in
-the hxdos work touches those two paths, and the win64 path is covered by the
+the dpmi32pe work touches those two paths, and the win64 path is covered by the
 golden set.
 
 --------------------------------------------------------------------------------

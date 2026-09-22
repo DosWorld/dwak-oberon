@@ -1,7 +1,6 @@
 ﻿(*
     BSD 2-Clause License
 
-    Copyright (c) 2026-, DosWorld
     Copyright (c) 2019-2022, Anton Krotov
     All rights reserved.
 *)
@@ -40,7 +39,7 @@ PROCEDURE [oberon] sqrt* (x: REAL): REAL;
 BEGIN
     ASSERT(x >= ZERO);
 
-    $IF (CPU_X8664)
+    $IF (CPU_AMD64)
 
     SYSTEM.CODE(
     0F2H, 0FH, 51H, 45H, 10H,  (*  sqrtsd  xmm0, qword[rbp + 10h]  *)
@@ -48,7 +47,7 @@ BEGIN
     0C2H, 08H, 00H             (*  ret     8                       *)
     )
 
-    $ELSIF (CPU_X86)
+    $ELSIF (CPU_I386)
 
     SYSTEM.CODE(
     0DDH, 045H, 008H,          (*  fld     qword [ebp + 08h]  *)

@@ -78,7 +78,7 @@ BEGIN
 END init;
 
 
-$IF (CPU_X86)
+$IF (CPU_I386)
 PROCEDURE [oberon-] syscall* (eax, ebx, ecx, edx, esi, edi: INTEGER): INTEGER;
 BEGIN
     SYSTEM.CODE(
@@ -102,7 +102,7 @@ BEGIN
 END syscall;
 
 
-$ELSIF (CPU_X8664)
+$ELSIF (CPU_AMD64)
 PROCEDURE [oberon-] syscall* (rax, rdi, rsi, rdx, r10, r8, r9: INTEGER): INTEGER;
 BEGIN
     SYSTEM.CODE(

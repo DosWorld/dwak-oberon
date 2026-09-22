@@ -478,7 +478,7 @@ END DebugMsg;
    A DLL that cannot find them has no memory it could legitimately use, so it
    refuses the load: the entry point returns 0, the loader reports the failure
    and the EXE that asked for the module gets a null handle back. That 0 is
-   handed straight back by the code generator - X86.prolog compares the entry
+   handed straight back by the code generator - I386.prolog compares the entry
    point's answer against 0 and against 1 instead of testing it - so it has to
    mean a failed attach and nothing else. *)
 PROCEDURE AttachHeap (): BOOLEAN;
@@ -508,7 +508,7 @@ BEGIN
     END;
 
     IF ~ok THEN
-        msg := "hxdos: DLL needs an EXE that exports new/dispose";
+        msg := "dpmi32pe: DLL needs an EXE that exports new/dispose";
         DebugMsg(SYSTEM.ADR(msg[0]), 0)
     END;
 

@@ -8,7 +8,7 @@
 
 (*---------------------x86_64---------------------*)
 
-$IF (CPU_X8664)
+$IF (CPU_AMD64)
 MODULE RTL;
 
 IMPORT SYSTEM, API;
@@ -555,7 +555,7 @@ $END
 
 (*---------------------x86------------------------*)
 
-$IF (CPU_X86)
+$IF (CPU_I386)
 MODULE RTL;
 
 IMPORT SYSTEM, API;
