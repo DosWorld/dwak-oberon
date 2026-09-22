@@ -8,7 +8,7 @@ VAR
 BEGIN
     Console.open;
 
-    Out.String("HXDOS Out demo");
+    Out.String("DOS Out demo");
     Out.Ln;
     FOR i := 0 TO 3 DO
         Out.String("i =");
