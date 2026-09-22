@@ -1,4 +1,4 @@
-﻿MODULE HelloHX;
+﻿MODULE Hello;
 
 IMPORT HOST;
 
@@ -7,4 +7,4 @@ BEGIN
     HOST.OutChar("i");
     HOST.OutChar(0DX);
     HOST.OutChar(0AX)
-END HelloHX.
+END Hello.
