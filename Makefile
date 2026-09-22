@@ -1,25 +1,17 @@
-lin64:
-	./compiler ./source/Compiler.mod linux64exe -out ./bin/compiler -stk 2
-lin32:
-	./compiler ./source/Compiler.mod linux32exe -out ./bin/compiler32 -stk 2
-lin64sample1:
-	./compiler ./samples/linux/hello.mod linux64exe -out ./bin/hello -stk 2
-	./bin/hello
-lin64sample2:
-	./compiler ./samples/linux/x11/animation.mod linux64exe -out ./bin/animation -stk 2
-	./bin/animation
-win64:
-	./compiler ./source/Compiler.mod win64con -out ./bin/Compiler.exe -stk 2
-win32:
-	./compiler ./source/Compiler.mod win32con -out ./bin/Compiler32.exe -stk 2
-kos:
-	./compiler ./source/Compiler.mod kosexe -out ./bin/Compiler.kex -stk 2
-hxdos:
-	./compiler ./source/Compiler.mod hxdos -out ./hxcomp.exe -stk 2 -fa 512
-hxdosdll:
-	mkdir -p ./bin/hxdos
-	./compiler ./samples/HXDOS/Dll/DllLib.mod hxdosdll -out ./bin/hxdos/DLLLIB.DLL -stk 2 -fa 512
-hxdossamples: hxdosdll
-	for f in ./samples/HXDOS/*.mod; do \
-	    ./compiler $$f hxdos -out ./bin/hxdos/`basename $$f .mod`.exe -stk 2 -fa 512 || exit 1; \
-	done
+OC=boot64.exe
+OC_RUN=wine $(OC)
+
+all: lin32 lin64 win32 win64 macos64 dpmi32
+
+lin64: $(OC)
+	$(OC_RUN) ./source/Compiler.mod linux64exe -out ./bin/l64comp -stk 2
+lin32: $(OC)
+	$(OC_RUN) ./source/Compiler.mod linux32exe -out ./bin/l32comp -stk 2
+win64: $(OC)
+	$(OC_RUN) ./source/Compiler.mod win64con -out ./bin/w64comp.exe -stk 2
+win32: $(OC)
+	$(OC_RUN) ./source/Compiler.mod win32con -out ./bin/w32comp.exe -stk 2
+dpmi32: $(OC)
+	$(OC_RUN) ./source/Compiler.mod dpmi32pe -out ./bin/D32COMP.EXE -stk 2 -fa 512
+macos64: $(OC)
+	$(OC_RUN) ./source/Compiler.mod macos64 -out ./bin/m64comp -stk 2
