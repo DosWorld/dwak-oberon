@@ -8,8 +8,8 @@
 
 MODULE Compiler;
 
-IMPORT ST := STATEMENTS, PARS, UTILS, PATHS, PROG, C := CONSOLE,
-       ERRORS, STRINGS, WRITER, MSP430, THUMB, TARGETS, SCAN, TEXTDRV;
+IMPORT ST := STATEMENTS, PARS, UTILS, PATHS, PROG, TARGETS, SCAN, TEXTDRV,
+       ERRORS, Strings, WRITER, MSP430, THUMB, Out;
 
 
 CONST
@@ -29,8 +29,11 @@ CONST
     DEF_BITS_32   = "BITS_32";
     DEF_BITS_64   = "BITS_64";
 
+    DEF_REAL_32   = "REAL_32";
+    DEF_REAL_64   = "REAL_64";
 
-PROCEDURE keys (VAR options: PROG.OPTIONS; VAR out: PARS.PATH);
+
+PROCEDURE keys (VAR options: PROG.OPTIONS; VAR out, lib: PARS.PATH);
 VAR
     param: PARS.PATH;
     i, j:  INTEGER;
@@ -48,7 +51,7 @@ VAR
     BEGIN
         INC(i);
         UTILS.GetArg(i, param);
-        IF STRINGS.StrToInt(param, val) THEN
+        IF Strings.ToInt(param, val) THEN
             value := val
         END;
         IF param[0] = "-" THEN
@@ -60,6 +63,7 @@ VAR
 BEGIN
     options.lower := TRUE;
     out := "";
+    lib := "";
     checking := options.checking;
     _end := FALSE;
     i := 3;
@@ -69,7 +73,7 @@ BEGIN
         IF param = "-stk" THEN
             INC(i);
             UTILS.GetArg(i, param);
-            IF STRINGS.StrToInt(param, value) & (1 <= value) & (value <= 32) THEN
+            IF Strings.ToInt(param, value) & (1 <= value) & (value <= 32) THEN
                 options.stack := value
             END;
             IF param[0] = "-" THEN
@@ -86,6 +90,15 @@ BEGIN
                 DEC(i)
             ELSE
                 out := param
+            END
+
+        ELSIF param = "-l" THEN
+            INC(i);
+            UTILS.GetArg(i, param);
+            IF param[0] = "-" THEN
+                DEC(i)
+            ELSE
+                lib := param
             END
 
         ELSIF param = "-tab" THEN
@@ -137,7 +150,7 @@ BEGIN
         ELSIF param = "-ver" THEN
             INC(i);
             UTILS.GetArg(i, param);
-            IF STRINGS.StrToVer(param, major, minor) THEN
+            IF Strings.StrToVer(param, major, minor) THEN
                 options.version := major * 65536 + minor
             END;
             IF param[0] = "-" THEN
@@ -182,12 +195,12 @@ VAR
 BEGIN
     width := 15;
     width := width - LENGTH(TARGETS.Targets[target].ComLinePar) - 4;
-    C.String("  '"); C.String(TARGETS.Targets[target].ComLinePar); C.String("'");
+    Out.String("  '"); Out.String(TARGETS.Targets[target].ComLinePar); Out.String("'");
     WHILE width > 0 DO
-        C.String(20X);
+        Out.Char(20X);
         DEC(width)
     END;
-    C.StringLn(text)
+    Out.StringLn(text)
 END OutTargetItem;
 
 
@@ -199,6 +212,7 @@ VAR
     app_path:   PARS.PATH;
     lib_path:   PARS.PATH;
     common_lib_path: PARS.PATH;
+    lib_dir:    PARS.PATH;
     modname:    PARS.PATH;
     outname:    PARS.PATH;
     param:      PARS.PATH;
@@ -228,19 +242,17 @@ BEGIN
     common_lib_path := path;
 
     UTILS.GetArg(1, inname);
-    STRINGS.replace(inname, "\", UTILS.slash);
-    STRINGS.replace(inname, "/", UTILS.slash);
+    Strings.ReplaceChar(inname, "\", UTILS.slash);
+    Strings.ReplaceChar(inname, "/", UTILS.slash);
 
-    C.Ln;
-    C.String("DWAK Oberon Compiler v"); C.Int(UTILS.vMajor); C.String("."); C.Int2(UTILS.vMinor);
-        C.String(" ("); C.Int(UTILS.bit_depth); C.StringLn("-bit) " + UTILS.Date);
-    C.StringLn("Copyright (c) 2026, DosWord");
-    C.StringLn("Copyright (c) 2018-2025, Anton Krotov");
+    Out.String("DWAK Oberon Compiler v"); Out.Int(UTILS.vMajor, 0); Out.String("."); UTILS.Int2(UTILS.vMinor);
+        Out.String(" ("); Out.Int(UTILS.bit_depth, 0); Out.String("-bit) " + UTILS.Date);
+    Out.StringLn(". Copyright (c) 2026, DosWord  (c) 2018-2025, Anton Krotov");
 
     IF inname = "" THEN
-        C.Ln;
-        C.StringLn("Usage: Compiler <main module> <target> [optional settings]"); C.Ln;
-        C.StringLn("target =");
+        Out.Ln;
+        Out.StringLn("Usage: Compiler <main module> <target> [optional settings]"); Out.Ln;
+        Out.StringLn("target =");
         IF UTILS.bit_depth = 64 THEN
             OutTargetItem(TARGETS.Win64C, "Windows64 Console");
             OutTargetItem(TARGETS.Win64GUI, "Windows64 GUI");
@@ -261,25 +273,26 @@ BEGIN
             OutTargetItem(TARGETS.STM32CM3, "STM32 Cortex-M3 microcontrollers")
         END;
         OutTargetItem(TARGETS.MSP430, "MSP430x{1,2}xx microcontrollers");
-        C.Ln;
-        C.StringLn("optional settings:"); C.Ln;
-        C.StringLn("  -out <file name>      output");
-        C.StringLn("  -stk <size>           set size of stack in Mbytes (Windows, Linux, HX-DOS, LE-DOS)");
-        C.StringLn("  -nochk <'ptibcwra'>   disable runtime checking (pointers, types, indexes,");
-        C.StringLn("                        BYTE, CHR, WCHR)");
-        C.StringLn("  -lower                allow lower case for keywords (default)");
-        C.StringLn("  -upper                only upper case for keywords");
-        C.StringLn("  -def <identifier>     define conditional compilation symbol");
-        C.StringLn("  -ver <major.minor>    set version of program (LE-DOS)");
-        C.StringLn("  -ram <size>           set size of RAM in bytes (MSP430) or Kbytes (STM32)");
-        C.StringLn("  -rom <size>           set size of ROM in bytes (MSP430) or Kbytes (STM32)");
-        C.StringLn("  -tab <width>          set width for tabs");
-        C.StringLn("  -uses                 list imported modules");
-        C.StringLn("  -fa <size>            set PE32 file alignment {512 (def.), 1024, 2048, 4096}");
+        Out.Ln;
+        Out.StringLn("optional settings:"); Out.Ln;
+        Out.StringLn("  -out <file name>      output");
+        Out.StringLn("  -l <path>             set path to the lib directory");
+        Out.StringLn("                        (default: lib next to the exe)");
+        Out.StringLn("  -stk <size>           set size of stack in Mbytes (Windows, Linux, HX-DOS, LE-DOS)");
+        Out.StringLn("  -nochk <'ptibcwra'>   disable runtime checking (pointers, types, indexes,");
+        Out.StringLn("                        BYTE, CHR, WCHR)");
+        Out.StringLn("  -lower                allow lower case for keywords (default)");
+        Out.StringLn("  -upper                only upper case for keywords");
+        Out.StringLn("  -def <identifier>     define conditional compilation symbol");
+        Out.StringLn("  -ver <major.minor>    set version of program (LE-DOS)");
+        Out.StringLn("  -ram <size>           set size of RAM in bytes (MSP430) or Kbytes (STM32)");
+        Out.StringLn("  -rom <size>           set size of ROM in bytes (MSP430) or Kbytes (STM32)");
+        Out.StringLn("  -tab <width>          set width for tabs");
+        Out.StringLn("  -uses                 list imported modules");
+        Out.StringLn("  -fa <size>            set PE32 file alignment {512 (def.), 1024, 2048, 4096}");
         UTILS.Exit(0)
     END;
 
-    C.Dashes;
     PATHS.split(inname, path, modname, ext);
 
     IF ext # UTILS.FILE_EXT THEN
@@ -318,22 +331,44 @@ BEGIN
         ERRORS.Error(206)
     END;
 
-    STRINGS.append(lib_path, "lib");
-    STRINGS.append(lib_path, UTILS.slash);
-    STRINGS.append(lib_path, TARGETS.LibDir);
-    STRINGS.append(lib_path, UTILS.slash);
+    keys(options, outname, lib_dir);
 
-    STRINGS.append(common_lib_path, "lib");
-    STRINGS.append(common_lib_path, UTILS.slash);
-    STRINGS.append(common_lib_path, "COMMON");
-    STRINGS.append(common_lib_path, UTILS.slash);
+    IF lib_dir = "" THEN
+        (* No -l.  lib_path was seeded with the directory argv[0] names, so
+           the library is looked for next to the compiler itself. *)
+        ASSERT(Strings.Append("lib", lib_path));
+        ASSERT(Strings.Append(UTILS.slash, lib_path));
 
-    keys(options, outname);
+        ASSERT(Strings.Append("lib", common_lib_path));
+        ASSERT(Strings.Append(UTILS.slash, common_lib_path))
+    ELSE
+        (* -l <path>: the named directory is the lib directory itself, so it
+           stands in for the "lib" component rather than being a parent of
+           it.  Which is the point: a compiler built somewhere other than
+           the repository root -- a build directory, say -- can be told
+           where lib is instead of having to sit beside it. *)
+        Strings.ReplaceChar(lib_dir, "\", UTILS.slash);
+        Strings.ReplaceChar(lib_dir, "/", UTILS.slash);
+
+        IF lib_dir[LENGTH(lib_dir) - 1] # UTILS.slash THEN
+            ASSERT(Strings.Append(UTILS.slash, lib_dir))
+        END;
+
+        COPY(lib_dir, lib_path);
+        COPY(lib_dir, common_lib_path)
+    END;
+
+    ASSERT(Strings.Append(TARGETS.LibDir, lib_path));
+    ASSERT(Strings.Append(UTILS.slash, lib_path));
+
+    ASSERT(Strings.Append("common", common_lib_path));
+    ASSERT(Strings.Append(UTILS.slash, common_lib_path));
+
     TEXTDRV.setTabSize(options.tab);
     IF outname = "" THEN
         outname := path;
-        STRINGS.append(outname, modname);
-        STRINGS.append(outname, TARGETS.FileExt)
+        ASSERT(Strings.Append(modname, outname));
+        ASSERT(Strings.Append(TARGETS.FileExt, outname))
     ELSE
         IF PATHS.isRelative(outname) THEN
             PATHS.RelPath(app_path, outname, temp);
@@ -364,13 +399,24 @@ BEGIN
     |TARGETS.cpuRVM64I: SCAN.NewDef(DEF_BITS_64)
     END;
 
+    (* The width of a REAL is not the width of an INTEGER.  Win32, Linux32 and
+       the HX-DOS targets run a 32-bit INTEGER beside a 64-bit REAL, and the
+       small CPUs run both narrow, so neither BITS_32 nor BITS_64 says how many
+       digits a real can hold.  TARGETS.RealSize is the one thing that does, and
+       REAL_32/REAL_64 spell it out for a library that has to format one: 4
+       bytes of REAL needs 10 significant digits, 8 bytes needs 15.  A target
+       with no REAL at all - MSP430, whose RealSize is 0 - gets neither symbol. *)
+    CASE TARGETS.RealSize OF
+    |4: SCAN.NewDef(DEF_REAL_32)
+    |8: SCAN.NewDef(DEF_REAL_64)
+    END;
+
     ST.compile(path, lib_path, common_lib_path, modname, outname, target, options);
 
     time := UTILS.GetTickCount() - UTILS.time;
-    C.Dashes;
-    C.Int(PARS.lines); C.String(" lines, ");
-    C.Int(time DIV 100); C.String("."); C.Int2(time MOD 100); C.String(" sec, ");
-    C.Int(WRITER.counter); C.StringLn(" bytes");
+    Out.Int(PARS.lines, 0); Out.String(" lines, ");
+    Out.Int(time DIV 100, 0); Out.String("."); UTILS.Int2(time MOD 100); Out.String(" sec, ");
+    Out.Int(WRITER.counter, 0); Out.StringLn(" bytes");
 
     UTILS.Exit(0)
 END main;

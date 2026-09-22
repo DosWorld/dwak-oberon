@@ -9,7 +9,7 @@
 MODULE AMD64;
 
 IMPORT IL, BIN, WR := WRITER, CHL := CHUNKLISTS, LISTS, PATHS, PROG, TARGETS,
-       REG, UTILS, S := STRINGS, PE32, ELF, I386, ERRORS
+       REG, UTILS, Strings, PE32, ELF, I386, ERRORS
 $IF (BITS_64)
        , MACHO
 $END
@@ -2412,7 +2412,7 @@ BEGIN
     SystemVRegPar[5] := r9;
 
     PATHS.split(outname, path, modname, ext);
-    S.append(modname, ext);
+    ASSERT(Strings.Append(ext, modname));
 
     REG.Init(R, push, pop, mov, xchg, {rax, rcx, rdx, r8, r9, r10, r11});
 

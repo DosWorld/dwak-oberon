@@ -8,13 +8,12 @@
 
 MODULE UTILS;
 
-IMPORT HOST;
+IMPORT HOST, Out;
 
 
 CONST
 
     slash* = HOST.slash;
-    eol* = HOST.eol;
 
     bit_depth* = HOST.bit_depth;
     maxint* = HOST.maxint;
@@ -24,8 +23,8 @@ CONST
     max32* =  2147483647;
 
     vMajor* = 1;
-    vMinor* = 69;
-    Date* = "06-jun-2025";
+    vMinor* = 70;
+    Date* = "23-Sep-2026";
 
     FILE_EXT* = ".mod";
     RTL_NAME* = "RTL";
@@ -105,10 +104,17 @@ PROCEDURE GetTickCount* (): INTEGER;
 END GetTickCount;
 
 
-PROCEDURE OutChar* (c: CHAR);
+(* Int2 - write x in a two digit column.  Out.Int pads on the left with spaces,
+   and the version number and the hundredths of a second want a zero there
+   instead.  A negative x is written plainly, the sign taking the column that
+   the zero would have. *)
+PROCEDURE Int2* (x: INTEGER);
 BEGIN
-    HOST.OutChar(c)
-END OutChar;
+    IF (x >= 0) & (x < 10) THEN
+        Out.Char("0")
+    END;
+    Out.Int(x, 0)
+END Int2;
 
 
 PROCEDURE splitf* (x: REAL; VAR a, b: INTEGER): INTEGER;

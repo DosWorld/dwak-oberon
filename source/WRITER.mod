@@ -8,13 +8,13 @@
 
 MODULE WRITER;
 
-IMPORT FILES, ERRORS, UTILS;
+IMPORT Files, ERRORS, UTILS;
 
 
 VAR
 
     counter*: INTEGER;
-    file: FILES.FILE;
+    file: Files.File;
 
 
 PROCEDURE align* (n, _align: INTEGER): INTEGER;
@@ -26,7 +26,7 @@ END align;
 
 PROCEDURE WriteByte* (n: BYTE);
 BEGIN
-    IF FILES.WriteByte(file, n) THEN
+    IF Files.WriteByte(file, n) = 1 THEN
         INC(counter)
     ELSE
         ERRORS.Error(201)
@@ -39,7 +39,7 @@ VAR
     n: INTEGER;
 
 BEGIN
-    n := FILES.write(file, chunk, bytes);
+    n := Files.BlockWrite(file, chunk, bytes);
     IF n # bytes THEN
         ERRORS.Error(201)
     END;
@@ -93,13 +93,15 @@ END Padding;
 PROCEDURE Create* (FileName: ARRAY OF CHAR);
 BEGIN
     counter := 0;
-    file := FILES.create(FileName)
+    IF ~Files.ReWrite(file, FileName) THEN
+        ERRORS.Error(201)
+    END
 END Create;
 
 
 PROCEDURE Close*;
 BEGIN
-    FILES.close(file)
+    Files.Close(file)
 END Close;
 
 

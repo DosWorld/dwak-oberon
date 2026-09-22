@@ -8,7 +8,7 @@
 
 MODULE PARS;
 
-IMPORT PROG, SCAN, ARITH, STRINGS, ERRORS, LISTS, IL, CONSOLE, PATHS, UTILS,
+IMPORT PROG, SCAN, ARITH, Strings, ERRORS, LISTS, IL, PATHS, UTILS, Out,
        C := COLLECTIONS, TARGETS, THUMB, MSP430;
 
 
@@ -235,21 +235,21 @@ BEGIN
             _in := TRUE;
             Next(parser);
             IF parser.sym = SCAN.lxSTRING THEN
-                STRINGS.trim(parser.lex.string.s, fname)
+                Strings.TrimTo(parser.lex.string.s, fname)
             ELSIF parser.sym = SCAN.lxCHAR THEN
                 fname[0] := CHR(ARITH.Int(parser.lex.value));
                 fname[1] := 0X
             ELSE
                 check1(FALSE, parser, 117)
             END;
-            STRINGS.replace(fname, "/", UTILS.slash);
-            STRINGS.replace(fname, "\", UTILS.slash);
+            Strings.ReplaceChar(fname, "/", UTILS.slash);
+            Strings.ReplaceChar(fname, "\", UTILS.slash);
             PATHS.DelSlashes(fname);
             PATHS.split(fname, path, _name, ext);
             IF PATHS.isRelative(path) THEN
                 PATHS.RelPath(parser.path, path, fname);
-                STRINGS.append(fname, _name);
-                STRINGS.append(fname, ext);
+                ASSERT(Strings.Append(_name, fname));
+                ASSERT(Strings.Append(ext, fname));
                 PATHS.split(fname, path, _name, ext)
             END;
             Next(parser)
@@ -264,19 +264,19 @@ BEGIN
                     unit := PROG.getUnit(fname)
                 ELSE
                     fname := path;
-                    STRINGS.append(fname, _name);
-                    STRINGS.append(fname, UTILS.FILE_EXT);
+                    ASSERT(Strings.Append(_name, fname));
+                    ASSERT(Strings.Append(UTILS.FILE_EXT, fname));
                     unit := PROG.getUnit(fname);
                     IF unit = NIL THEN
                         fname := parser.lib_path;
-                        STRINGS.append(fname, _name);
-                        STRINGS.append(fname, UTILS.FILE_EXT);
+                        ASSERT(Strings.Append(_name, fname));
+                        ASSERT(Strings.Append(UTILS.FILE_EXT, fname));
                         unit := PROG.getUnit(fname)
                     END;
                     IF unit = NIL THEN
                         fname := parser.common_lib_path;
-                        STRINGS.append(fname, _name);
-                        STRINGS.append(fname, UTILS.FILE_EXT);
+                        ASSERT(Strings.Append(_name, fname));
+                        ASSERT(Strings.Append(UTILS.FILE_EXT, fname));
                         unit := PROG.getUnit(fname)
                     END
                 END
@@ -679,7 +679,7 @@ BEGIN
         IF isProc & (parser.sym = SCAN.lxCOMMA) THEN
             Next(parser);
             getStr(parser, dll);
-            STRINGS.UpCase(dll);
+            Strings.ToUpper(dll);
             checklex(parser, SCAN.lxCOMMA);
             Next(parser);
             getStr(parser, proc);
@@ -1278,23 +1278,23 @@ BEGIN
 
     INC(modules);
 
-    CONSOLE.String("compiling ");
-    CONSOLE.String("("); CONSOLE.Int(modules); CONSOLE.String(") ");
-    CONSOLE.String(unit.name.s);
+    Out.String("compiling ");
+    Out.String("("); Out.Int(modules, 0); Out.String(") ");
+    Out.String(unit.name.s);
     IF unit.sysimport THEN
-        CONSOLE.String(" (SYSTEM)")
+        Out.String(" (SYSTEM)")
     END;
-    CONSOLE.Ln;
+    Out.Ln;
 
     IF PROG.program.options.uses THEN
         ident := unit.idents.first(PROG.IDENT);
         WHILE ident # NIL DO
             IF (ident.typ = PROG.idMODULE) & (ident.unit # PROG.program.sysunit) THEN
-                CONSOLE.String("    "); CONSOLE.String(ident.unit.fname); CONSOLE.Ln
+                Out.String("    "); Out.String(ident.unit.fname); Out.Ln
             END;
             ident := ident.next(PROG.IDENT)
         END;
-        CONSOLE.Ln
+        Out.Ln
     END;
 
     IF TARGETS.CPU IN {TARGETS.cpuI386P, TARGETS.cpuAMD64} THEN
@@ -1346,9 +1346,9 @@ PROCEDURE open (parser: PARSER; modname, FileExt: ARRAY OF CHAR): BOOLEAN;
 BEGIN
     ASSERT(parser # NIL);
 
-    STRINGS.append(parser.fname, modname);
-    STRINGS.append(parser.fname, FileExt);
-    STRINGS.append(parser.modname, modname);
+    ASSERT(Strings.Append(modname, parser.fname));
+    ASSERT(Strings.Append(FileExt, parser.fname));
+    ASSERT(Strings.Append(modname, parser.modname));
 
     parser.scanner := SCAN.open(parser.fname)
 

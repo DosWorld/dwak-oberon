@@ -1,11 +1,17 @@
 ﻿(*
     BSD 2-Clause License
 
+    Copyright (c) 2026-, DosWorld
     Copyright (c) 2020, Anton Krotov
     All rights reserved.
+
+    The Linux primitives behind the portable Args.  The kernel leaves argv
+    and envp as arrays of pointers in the process parameter block, so both
+    are read straight out of it and there is nothing to parse: the surface
+    above them is lib/common/Args.mod.
 *)
 
-MODULE Args;
+MODULE ArchArgs;
 
 IMPORT SYSTEM, API;
 
@@ -24,11 +30,7 @@ BEGIN
     i := 0;
     len := LEN(s) - 1;
     IF (0 <= n) & (n <= argc + envc) & (n # argc) & (len > 0) THEN
-        IF n < argc THEN
-            SYSTEM.GET(API.MainArgv + n * SYSTEM.SIZE(INTEGER), ptr)
-        ELSE
-            SYSTEM.GET(API.MainEnvp + (n - argc - 1) * SYSTEM.SIZE(INTEGER), ptr)
-        END;
+        SYSTEM.GET(API.MainParam + (n + 1) * SYSTEM.SIZE(INTEGER), ptr);
         REPEAT
             SYSTEM.GET(ptr, c);
             s[i] := c;
@@ -55,19 +57,20 @@ VAR
     ptr: INTEGER;
 
 BEGIN
-    argc := API.MainArgc;
-    IF API.MainEnvp # 0 THEN
+    IF API.MainParam # 0 THEN
         envc := -1;
+        SYSTEM.GET(API.MainParam, argc);
         REPEAT
-            SYSTEM.GET(API.MainEnvp + (envc + 1) * SYSTEM.SIZE(INTEGER), ptr);
+            SYSTEM.GET(API.MainParam + (envc + argc + 3) * SYSTEM.SIZE(INTEGER), ptr);
             INC(envc)
         UNTIL ptr = 0
     ELSE
-        envc := 0
+        envc := 0;
+        argc := 0
     END
 END init;
 
 
 BEGIN
     init
-END Args.
+END ArchArgs.

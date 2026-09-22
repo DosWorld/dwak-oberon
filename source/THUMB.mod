@@ -8,7 +8,7 @@
 
 MODULE THUMB;
 
-IMPORT SYSTEM, PROG, CHL := CHUNKLISTS, BIN, REG, IL, C := CONSOLE,
+IMPORT SYSTEM, PROG, CHL := CHUNKLISTS, BIN, REG, IL, Out,
        UTILS, WR := WRITER, HEX, ERRORS, TARGETS;
 
 
@@ -2514,12 +2514,12 @@ BEGIN
 
     WR.Close;
 
-    C.Dashes;
-    C.String(  "  rom:  "); C.Int(CodeSize); C.String(" of "); C.Int(Target.flash.size - Target.flash.endReserve);
-        C.String("  ("); C.Int(CodeSize * 100 DIV (Target.flash.size - Target.flash.endReserve)); C.StringLn("%)");
-    C.Ln;
-    C.String(  "  ram:  "); C.Int(DataSize); C.String(" of "); C.Int(Target.sram.size - Target.sram.endReserve);
-        C.String("  ("); C.Int(DataSize * 100 DIV (Target.sram.size - Target.sram.endReserve)); C.StringLn("%)")
+    Out.StringLn("------------------------------------------------");
+    Out.String(  "  rom:  "); Out.Int(CodeSize, 0); Out.String(" of "); Out.Int(Target.flash.size - Target.flash.endReserve, 0);
+        Out.String("  ("); Out.Int(CodeSize * 100 DIV (Target.flash.size - Target.flash.endReserve), 0); Out.StringLn("%)");
+    Out.Ln;
+    Out.String(  "  ram:  "); Out.Int(DataSize, 0); Out.String(" of "); Out.Int(Target.sram.size - Target.sram.endReserve, 0);
+        Out.String("  ("); Out.Int(DataSize * 100 DIV (Target.sram.size - Target.sram.endReserve), 0); Out.StringLn("%)")
 END CodeGen;
 
 

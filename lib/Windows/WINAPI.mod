@@ -196,11 +196,31 @@ PROCEDURE [windows-, KERNEL, ""] OpenFile* (lpFileName: INTEGER; lpReOpenBuff: O
 
 PROCEDURE [windows-, KERNEL, ""] SetFilePointer* (hFile, lDistanceToMove, lpDistanceToMoveHigh, dwMoveMethod: INTEGER): INTEGER;
 
+PROCEDURE [windows-, KERNEL, ""] MoveFileA* (lpExistingFileName, lpNewFileName: INTEGER): INTEGER;
+
+PROCEDURE [windows-, KERNEL, ""] SetEndOfFile* (hFile: INTEGER): INTEGER;
+
+PROCEDURE [windows-, KERNEL, ""] GetFileTime* (hFile, lpCreationTime, lpLastAccessTime, lpLastWriteTime: INTEGER): INTEGER;
+
+PROCEDURE [windows-, KERNEL, ""] SetFileTime* (hFile, lpCreationTime, lpLastAccessTime, lpLastWriteTime: INTEGER): INTEGER;
+
+PROCEDURE [windows-, KERNEL, ""] FileTimeToLocalFileTime* (lpFileTime, lpLocalFileTime: INTEGER): INTEGER;
+
+PROCEDURE [windows-, KERNEL, ""] LocalFileTimeToFileTime* (lpLocalFileTime, lpFileTime: INTEGER): INTEGER;
+
+PROCEDURE [windows-, KERNEL, ""] FileTimeToSystemTime* (lpFileTime, lpSystemTime: INTEGER): INTEGER;
+
+PROCEDURE [windows-, KERNEL, ""] SystemTimeToFileTime* (lpSystemTime, lpFileTime: INTEGER): INTEGER;
+
 PROCEDURE [windows-, KERNEL, ""] ReadConsoleA* (hConsoleInput, lpBuffer, nNumberOfCharsToRead, lpNumberOfCharsRead, lpReserved: INTEGER): INTEGER;
 
 PROCEDURE [windows-, KERNEL, ""] WriteConsoleW* (hConsoleOutput, lpBuffer, nNumberOfCharsToWrite, lpNumberOfCharsWritten, lpReserved: INTEGER): INTEGER;
 
 PROCEDURE [windows-, KERNEL, ""] WriteConsoleA* (hConsoleOutput, lpBuffer, nNumberOfCharsToWrite, lpNumberOfCharsWritten, lpReserved: INTEGER): INTEGER;
+
+PROCEDURE [windows-, KERNEL, ""] GetEnvironmentStringsA* (): INTEGER;
+
+PROCEDURE [windows-, KERNEL, ""] FreeEnvironmentStringsA* (penv: INTEGER): INTEGER;
 
 PROCEDURE [windows-, USER,   ""] MessageBoxA* (hWnd, lpText, lpCaption, uType: INTEGER): INTEGER;
 

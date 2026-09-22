@@ -8,7 +8,7 @@
 
 MODULE TEXTDRV;
 
-IMPORT FILES, C := COLLECTIONS;
+IMPORT Files, C := COLLECTIONS;
 
 
 CONST
@@ -26,7 +26,7 @@ TYPE
 
         chunk:        ARRAY CHUNK OF CHAR;
         pos, size:    INTEGER;
-        file:         FILES.FILE;
+        file:         Files.File;
         utf8:         BOOLEAN;
         CR:           BOOLEAN;
 
@@ -54,7 +54,7 @@ VAR
 PROCEDURE load (text: TEXT);
 BEGIN
     IF ~text.eof THEN
-        text.size := FILES.read(text.file, text.chunk, LEN(text.chunk));
+        text.size := Files.BlockReadText(text.file, text.chunk, LEN(text.chunk));
         text.pos := 0;
         IF text.size = 0 THEN
             text.eof := TRUE;
@@ -143,9 +143,7 @@ END init;
 PROCEDURE close* (VAR text: TEXT);
 BEGIN
     IF text # NIL THEN
-        IF text.file # NIL THEN
-            FILES.close(text.file)
-        END;
+        Files.Close(text.file);
 
         C.push(texts, text);
         text := NIL
@@ -181,9 +179,8 @@ BEGIN
         text.elsec := 0;
         text._skip[0] := FALSE;
         text.peak := 0X;
-        text.file := FILES.open(name);
         COPY(name, text.fname);
-        IF text.file # NIL THEN
+        IF Files.Reset(text.file, name) THEN
             load(text);
             init(text)
         ELSE

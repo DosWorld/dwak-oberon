@@ -8,25 +8,25 @@
 
 MODULE ERRORS;
 
-IMPORT C := CONSOLE, UTILS;
+IMPORT UTILS, Out;
 
 
 PROCEDURE HintMsg* (name: ARRAY OF CHAR; line, col, hint: INTEGER);
 BEGIN
     IF hint = 0 THEN
-        C.String("  hint ("); C.Int(line); C.String(":"); C.Int(col); C.String(") ");
-        C.String("variable '"); C.String(name); C.StringLn("' never used")
+        Out.String("  hint ("); Out.Int(line, 0); Out.String(":"); Out.Int(col, 0); Out.String(") ");
+        Out.String("variable '"); Out.String(name); Out.StringLn("' never used")
     END
 END HintMsg;
 
 
 PROCEDURE WarningMsg* (line, col, warning: INTEGER);
 BEGIN
-    C.String("  warning ("); C.Int(line); C.String(":"); C.Int(col); C.String(") ");
+    Out.String("  warning ("); Out.Int(line, 0); Out.String(":"); Out.Int(col, 0); Out.String(") ");
     CASE warning OF
-    |0: C.StringLn("passing a string value as a fixed array")
-    |1: C.StringLn("endless FOR loop")
-    |2: C.StringLn("identifier too long")
+    |0: Out.StringLn("passing a string value as a fixed array")
+    |1: Out.StringLn("endless FOR loop")
+    |2: Out.StringLn("identifier too long")
     END
 END WarningMsg;
 
@@ -36,8 +36,10 @@ VAR
     str: ARRAY 80 OF CHAR;
 
 BEGIN
-    C.Ln;
-    C.String("  error  ("); C.Int(errno); C.String(") ("); C.Int(line); C.String(":"); C.Int(col); C.String(") ");
+    Out.Ln;
+    Out.String("ERROR:");
+    Out.String(fname);
+    Out.String("(");  Out.Int(line, 0); Out.String(":"); Out.Int(col, 0); Out.String("):"); Out.Int(errno, 0); Out.String(" ");
 
     CASE errno OF
     |  1: str := "missing 'H' or 'X'"
@@ -158,32 +160,31 @@ BEGIN
     |126: str := "type of formal parameter should not be REAL"
     |127: str := "NIL is not allowed in constant expressions"
     END;
-    C.StringLn(str);
-    C.String("  file:  ");  C.StringLn(fname);
+    Out.StringLn(str);
     UTILS.Exit(1)
 END ErrorMsg;
 
 
 PROCEDURE Error1 (s1: ARRAY OF CHAR);
 BEGIN
-    C.Ln;
-    C.StringLn(s1);
+    Out.Ln;
+    Out.StringLn(s1);
     UTILS.Exit(1)
 END Error1;
 
 
 PROCEDURE Error3 (s1, s2, s3: ARRAY OF CHAR);
 BEGIN
-    C.Ln;
-    C.String(s1); C.String(s2); C.StringLn(s3);
+    Out.Ln;
+    Out.String(s1); Out.String(s2); Out.StringLn(s3);
     UTILS.Exit(1)
 END Error3;
 
 
 PROCEDURE Error5 (s1, s2, s3, s4, s5: ARRAY OF CHAR);
 BEGIN
-    C.Ln;
-    C.String(s1); C.String(s2); C.String(s3); C.String(s4); C.StringLn(s5);
+    Out.Ln;
+    Out.String(s1); Out.String(s2); Out.String(s3); Out.String(s4); Out.StringLn(s5);
     UTILS.Exit(1)
 END Error5;
 

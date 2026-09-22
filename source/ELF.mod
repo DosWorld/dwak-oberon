@@ -8,7 +8,7 @@
 
 MODULE ELF;
 
-IMPORT BIN, WR := WRITER, CHL := CHUNKLISTS, LISTS, PE32, UTILS, STRINGS;
+IMPORT BIN, WR := WRITER, CHL := CHUNKLISTS, LISTS, PE32, UTILS, Strings;
 
 
 CONST
@@ -311,18 +311,18 @@ BEGIN
 
     hashtab := CHL.CreateIntList();
 
-    CHL.PushInt(hashtab, STRINGS.HashStr(""));
+    CHL.PushInt(hashtab, Strings.HashStr(""));
     NewSym(CHL.PushStr(strtab, ""), 0, 0, 0X, 0X, 0X);
-    CHL.PushInt(hashtab, STRINGS.HashStr("dlopen"));
+    CHL.PushInt(hashtab, Strings.HashStr("dlopen"));
     NewSym(CHL.PushStr(strtab, "dlopen"), 0, 0, 12X, 0X, 0X);
-    CHL.PushInt(hashtab, STRINGS.HashStr("dlsym"));
+    CHL.PushInt(hashtab, Strings.HashStr("dlsym"));
     NewSym(CHL.PushStr(strtab, "dlsym"), 0, 0, 12X, 0X, 0X);
 
     IF so THEN
         item := program.exp_list.first;
         WHILE item # NIL DO
             ASSERT(CHL.GetStr(program.export, item(BIN.EXPRT).nameoffs, Name));
-            CHL.PushInt(hashtab, STRINGS.HashStr(Name));
+            CHL.PushInt(hashtab, Strings.HashStr(Name));
             NewSym(CHL.PushStr(strtab, Name), item(BIN.EXPRT).label, 0, 12X, 0X, 0X);
             item := item.next
         END;

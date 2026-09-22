@@ -34,12 +34,12 @@
     the extender's own stub and leaves this program running (see Exit).
 
     Every name this layer hands to DOS goes through an LFN function first -
-    open and create AH=716Ch, delete AH=7141h, attributes AH=7143h, mkdir and
-    rmdir AH=7139h/713Ah, the current directory AH=7147h - and through the
-    classic 8.3 form of the same call when that one does not answer. The LFN
-    subfunctions are the only ones that reach a long name, and the 8.3 forms
-    are the only ones a DOS without LFN support has at all, so a layer that
-    wants to work on either has to carry both.
+    open and create AH=716Ch, delete AH=7141h, attributes AH=7143h, rename
+    AH=7156h, mkdir and rmdir AH=7139h/713Ah, the current directory AH=7147h -
+    and through the classic 8.3 form of the same call when that one does not
+    answer. The LFN subfunctions are the only ones that reach a long name, and
+    the 8.3 forms are the only ones a DOS without LFN support has at all, so a
+    layer that wants to work on either has to carry both.
 
     Which of the two is there cannot be asked in advance: there is no call that
     reports LFN support, and a DOS that does not have the subfunctions answers
@@ -90,12 +90,21 @@ CONST
 
        0000h  the real mode call structure          50 bytes
        0040h  the path buffer                     512 bytes
+              one name, or two of 256 bytes each for the calls that take
+              two names: the old one at 0040h, the new one at 0140h
        0240h  the transfer buffer               48 KB
        0C240h .. 0FFFEh  the real mode stack        ~15 KB *)
     LOW_BLOCK = 1000H;                  (* the block, in paragraphs *)
     LOW_RMCS = 0;                       (* segment offset into the block *)
     LOW_NAME = 40H;
     LOW_NAME_LEN = 200H;
+    LOW_HALF = 100H;                    (* the path buffer holds one name or two
+                                           of this many bytes each: a call that
+                                           takes two names - rename is the one -
+                                           stages them at LOW_NAME and LOW_NAME2,
+                                           and a name that does not fit its half
+                                           is cut like any other *)
+    LOW_NAME2 = LOW_NAME + LOW_HALF;
     LOW_DATA = 240H;
     LOW_DATA_LEN = 0C000H;
     LOW_SP = 0FFFEH;                    (* where that stack starts, growing down *)
@@ -104,6 +113,7 @@ CONST
        tail is a length byte and then that many characters, with no
        terminator of its own. *)
     PSP_TAIL = 80H;
+    PSP_ENV  = 2CH;
 
     (* Bit 0 of the flags word. A call is entered with it set when the caller
        has to know whether the service ran at all - see the module header. *)
@@ -270,11 +280,14 @@ BEGIN
 END Intr;
 
 
-(* Copy the NUL terminated string at adr into the block's path buffer, so that
-   the wrappers below can hand a service the offset LOW_NAME in the block's
-   segment. A string too long for the buffer is cut and the service then
+(* Copy the NUL terminated string at adr into the block at off, cutting it at
+   max bytes: the one copy every wrapper that hands DOS a name goes through.
+   LowName is this with the whole path buffer to itself, LowName2 with the half
+   of it that the second name of a call that takes two names goes in.
+
+   A string too long for the room it is given is cut and the service then
    refuses the truncated name, the way it refuses any name it cannot find. *)
-PROCEDURE LowName (adr: INTEGER);
+PROCEDURE LowNameAt (adr, off, max: INTEGER);
 VAR
     i: INTEGER;
     c: CHAR;
@@ -282,14 +295,32 @@ VAR
 BEGIN
     i := 0;
     SYSTEM.GET(adr + i, c);
-    WHILE (c # 0X) & (i < LOW_NAME_LEN - 1) DO
-        SYSTEM.PUT(lowLin + LOW_NAME + i, c);
+    WHILE (c # 0X) & (i < max - 1) DO
+        SYSTEM.PUT(lowLin + off + i, c);
         INC(i);
         SYSTEM.GET(adr + i, c)
     END;
     c := 0X;
-    SYSTEM.PUT(lowLin + LOW_NAME + i, c)
+    SYSTEM.PUT(lowLin + off + i, c)
+END LowNameAt;
+
+
+(* The one name of a call that takes one, at the start of the path buffer. This
+   is the copy the file system wrappers below use, and it may run to the end of
+   the buffer: no DOS path has room for more than LOW_NAME_LEN characters. *)
+PROCEDURE LowName (adr: INTEGER);
+BEGIN
+    LowNameAt(adr, LOW_NAME, LOW_NAME_LEN)
 END LowName;
+
+
+(* The second name of a call that takes two, in the far half of the path buffer.
+   Only rename needs it, and it is bounded by that half so that neither name can
+   reach into the other; LOW_HALF bytes is as much as a DOS path has room for. *)
+PROCEDURE LowName2 (adr: INTEGER);
+BEGIN
+    LowNameAt(adr, LOW_NAME2, LOW_HALF)
+END LowName2;
 
 
 (* Execute int 31h AX=0500h with EDI addressing the caller's 48-byte buffer.
@@ -869,6 +900,47 @@ BEGIN
 END FileDelete;
 
 
+(* AH=7156h: rename a file, and AH=56h for a host without LFN support. Both
+   take the two names at once - the old one at DS:DX and the new one at ES:DI -
+   which makes this the one call here that is pointed at two strings. Both have
+   to be in the block, which is why the path buffer holds two names: the old one
+   is staged at its start by LowNameAt and the new one at LOW_NAME2 by LowName2,
+   one half of the buffer each, and the block's segment reaches both - Intr
+   leaves DS and ES at it when the caller does not name a segment, and this
+   caller does not.
+
+   The 8.3 form behind the LFN one takes the same two pointers and differs in
+   nothing but the function number. The LFN call is tried first and judged by
+   the carry flag, which is set before it: the LFN subfunctions are the only
+   ones that reach a long name, and a host that has none answers them with
+   7100h and the carry set, which is what sends the call down the older path.
+
+   Parameters: oldname - the name to change; newname - the name to change it to.
+   Result: TRUE when the service renamed it. *)
+PROCEDURE Rename* (oldname, newname: INTEGER): BOOLEAN;
+VAR
+    r: Registers;
+
+BEGIN
+    LowNameAt(oldname, LOW_NAME, LOW_HALF);
+    LowName2(newname);
+    Zero(r);
+    r.Flags := WCHR(CARRY);
+    r.EAX := 7156H;
+    r.EDX := LOW_NAME;
+    r.EDI := LOW_NAME2;
+    Intr(21H, r);
+    IF ORD(r.Flags) MOD 2 # 0 THEN
+        Zero(r);
+        r.EAX := 5600H;
+        r.EDX := LOW_NAME;
+        r.EDI := LOW_NAME2;
+        Intr(21H, r)
+    END;
+    RETURN ORD(r.Flags) MOD 2 = 0
+END Rename;
+
+
 (* AH=7139h: make a directory, and AH=39h for a host without LFN support. The
    name is at DS:EDX in both, so nothing moves but the function number. *)
 PROCEDURE MkDir* (name: INTEGER): BOOLEAN;
@@ -1042,6 +1114,70 @@ BEGIN
 END FileClose;
 
 
+(* AH=7140h: give the file behind an open handle a new length, and, behind it,
+   the two classic calls that do the same job for a host without the LFN
+   services: AH=42h moves the file pointer to that length and the write of no
+   bytes that follows it, AH=40h with CX=0, marks the end of the file there.
+   DOS cuts a file as readily as it extends one, filling what it adds with
+   zeros, so a smaller and a larger length are both reached.
+
+   The LFN call takes the handle in BX and the length as a 64-bit value at
+   ES:DI - the block again, holding the length in its low half and zero in its
+   high one. The 8.3 path has no such call and is given the length in CX:DX
+   instead, the form FileSeek above already writes.
+
+   A position belongs to the handle and not to the file, so it is saved before
+   the call and put back after it: the classic path has just moved it to the
+   new end, and there is nothing that says the LFN one leaves it alone. The
+   first seek is also what reports the position, and a handle DOS will not seek
+   is a handle this call refuses.
+
+   Parameters: h - the open handle; size - the length to leave the file with.
+   Result: TRUE when the file is that long and the handle sits where it did;
+   FALSE for a size below zero and for a handle DOS does not take. *)
+PROCEDURE Truncate* (h, size: INTEGER): BOOLEAN;
+VAR
+    r: Registers;
+    pos, at, hi: INTEGER;
+    ok: BOOLEAN;
+
+BEGIN
+    ok := FALSE;
+    IF size >= 0 THEN
+        FileSeek(h, 0, 1, pos);         (* where the caller had left it *)
+        IF pos >= 0 THEN
+            hi := 0;                    (* a length is not negative here *)
+            SYSTEM.PUT(lowLin + LOW_DATA, size);
+            SYSTEM.PUT(lowLin + LOW_DATA + 4, hi);
+            Zero(r);
+            r.Flags := WCHR(CARRY);
+            r.EAX := 7140H;
+            r.EBX := h;
+            r.EDI := LOW_DATA;
+            Intr(21H, r);
+            IF ORD(r.Flags) MOD 2 # 0 THEN
+                FileSeek(h, size, 0, at);
+                IF at = size THEN       (* DOS has to be at the new end *)
+                    Zero(r);
+                    r.EAX := 4000H;
+                    r.EBX := h;
+                    r.ECX := 0;
+                    r.EDX := LOW_DATA;
+                    Intr(21H, r)
+                END
+            END;
+            ok := ORD(r.Flags) MOD 2 = 0;
+            FileSeek(h, pos, 0, at);
+            IF at # pos THEN
+                ok := FALSE
+            END
+        END
+    END;
+
+    RETURN ok
+END Truncate;
+
+
 (* The current directory of a drive, as a NUL terminated string without the
    drive letter, in dest. DOS writes it to DS:ESI - the block again - and it is
    copied out to the caller afterwards.
@@ -1144,6 +1280,90 @@ BEGIN
     mo := (r.EDX DIV 256) MOD 256;
     d  := r.EDX MOD 256
 END GetDate;
+
+
+(* AH=5700h: the date and time a file was last written. The service answers
+   with the two 16-bit DOS fields the packed value of this pair is made of, the
+   time word in CX and the date word in DX, and this procedure puts the date
+   word in the high half of the result and the time word in the low one:
+   seconds DIV 2 land in bits 0..4 and year - 1980 in bits 25..31. (HX's own
+   GetFileTime reads the same call the same way: CX is the time and DX the
+   date.)
+
+   The service is given a handle, not a name, and DOS has no path-taking form of
+   it in either its classic or its LFN shape - the LFN call that answers for a
+   handle, AH=71A6h, hands back a Win32-style structure rather than these two
+   words, and has no counterpart for setting them. A name is therefore opened
+   first, and through OpenLFN, so that the long name is reached and the handle
+   is one DOS itself gave for it; it is closed again on both paths, so nothing
+   is left open behind a call that failed.
+
+   Parameters: name - the file to read the time of. time - receives the packed
+   date and time. Result: TRUE when the file exists and the service answered;
+   FALSE when it does not, which is the open failing, and also for a directory,
+   which DOS does not open as a file. *)
+PROCEDURE GetFileTime* (name: INTEGER; VAR time: INTEGER): BOOLEAN;
+VAR
+    r: Registers;
+    h: INTEGER;
+    ok: BOOLEAN;
+
+BEGIN
+    ok := FALSE;
+    time := 0;
+    OpenLFN(name, 0, 1, h);             (* read access, the file as it is *)
+    IF h # -1 THEN
+        Zero(r);
+        r.EAX := 5700H;
+        r.EBX := h;
+        Intr(21H, r);
+        IF ORD(r.Flags) MOD 2 = 0 THEN
+            time := r.EDX * 10000H + r.ECX;
+            ok := TRUE
+        END;
+        FileClose(h)
+    END;
+
+    RETURN ok
+END GetFileTime;
+
+
+(* AH=5701h: set the date and time a file was last written. The two words go
+   back where they came from - the time word in CX, the date word in DX - so the
+   packed value is split into them again, with DIV and MOD rather than bit
+   fields: this runtime divides towards minus infinity, so both words come out
+   right even for a date far enough ahead to have put the sign bit of the packed
+   value in use.
+
+   The file has to be opened first, like GetFileTime above and for the same
+   reason, and it is opened for reading and writing rather than read only,
+   because setting a stamp is a write to the file. A file DOS will not open that
+   way - a read-only one - is therefore reported as one it did not stamp.
+
+   Parameters: name - the file to stamp; time - the packed date and time to set.
+   Result: TRUE when the service set it. *)
+PROCEDURE SetFileTime* (name, time: INTEGER): BOOLEAN;
+VAR
+    r: Registers;
+    h: INTEGER;
+    ok: BOOLEAN;
+
+BEGIN
+    ok := FALSE;
+    OpenLFN(name, 2, 1, h);             (* read and write, the file as it is *)
+    IF h # -1 THEN
+        Zero(r);
+        r.EAX := 5701H;
+        r.EBX := h;
+        r.ECX := time MOD 10000H;
+        r.EDX := time DIV 10000H;
+        Intr(21H, r);
+        ok := ORD(r.Flags) MOD 2 = 0;
+        FileClose(h)
+    END;
+
+    RETURN ok
+END SetFileTime;
 
 
 (* The PE loader answers two int 21h calls that DKRNL32 uses for the same
@@ -1406,6 +1626,37 @@ BEGIN
     SYSTEM.PUT(dest + i, c);
     len := i
 END CmdLine;
+
+
+(* The linear address of the DOS environment block, or 0 when there is none.
+
+   The PSP opens with a jump, and the word at offset 2Ch of it is the segment
+   the environment lives in.  That the offset is a fixed one is the whole of
+   the agreement here - it is older than any other part of the PSP and DOS
+   itself never moved it - so the block is found through PspBase and the flat
+   relation, exactly as the command tail is.
+
+   A segment of 0 means no block: the environment is a run of NUL terminated
+   NAME=VALUE strings ended by a further NUL, and a block at linear address 0
+   would be the real mode interrupt table read as text. *)
+PROCEDURE EnvPtr* (): INTEGER;
+VAR
+    base, seg: INTEGER;
+    w: WCHAR;
+
+BEGIN
+    PspBase(base);
+    IF base = 0 THEN
+        seg := 0
+    ELSE
+        (* The field is a word, and reading it into an INTEGER would take the
+           word after it as well, so it is read as the 16 bits it is. *)
+        SYSTEM.GET(base + PSP_ENV, w);
+        seg := ORD(w)
+    END;
+
+    RETURN seg * 16
+END EnvPtr;
 
 
 (* No block, so no interrupt can be reflected and no DOS call can be made at

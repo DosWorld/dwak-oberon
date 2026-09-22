@@ -8,7 +8,7 @@
 
 MODULE ARITH;
 
-IMPORT STRINGS, UTILS, LISTS;
+IMPORT Strings, UTILS, LISTS;
 
 
 CONST
@@ -123,7 +123,7 @@ BEGIN
     value := 0;
 
     i := 0;
-    WHILE STRINGS.digit(s[i]) & (error = 0) DO
+    WHILE Strings.Digit(s[i]) & (error = 0) DO
         d := digit[ORD(s[i])];
         IF value <= (UTILS.maxint - d) DIV 10 THEN
             value := value * 10 + d;
@@ -152,7 +152,7 @@ VAR
     d:     INTEGER;
 
 BEGIN
-    ASSERT(STRINGS.digit(s[0]));
+    ASSERT(Strings.Digit(s[0]));
 
     error := 0;
     value := 0;
@@ -229,7 +229,7 @@ BEGIN
     n := 0;
 
     exp10 := 0.0;
-    WHILE (error = 0) & (STRINGS.digit(s[i]) OR (s[i] = ".")) DO
+    WHILE (error = 0) & (Strings.Digit(s[i]) OR (s[i] = ".")) DO
         IF s[i] = "." THEN
             exp10 := 1.0;
             INC(i)
@@ -255,7 +255,7 @@ BEGIN
         INC(i)
     END;
 
-    WHILE (error = 0) & STRINGS.digit(s[i]) DO
+    WHILE (error = 0) & Strings.Digit(s[i]) DO
         d := digit[ORD(s[i])];
         IF n <= (UTILS.maxint - d) DIV 10 THEN
             n := n * 10 + d;
@@ -765,10 +765,7 @@ VAR
     res: BOOLEAN;
 
 BEGIN
-    res := LENGTH(s) + LENGTH(s1) < LEN(s);
-    IF res THEN
-        STRINGS.append(s, s1)
-    END
+    res := Strings.Append(s1, s);
 
     RETURN res
 END concat;

@@ -8,7 +8,7 @@
 
 MODULE IL;
 
-IMPORT SYSTEM, LISTS, SCAN, STRINGS, CHL := CHUNKLISTS, TARGETS, PATHS;
+IMPORT SYSTEM, LISTS, SCAN, Strings, CHL := CHUNKLISTS, TARGETS, PATHS;
 
 
 CONST
@@ -436,7 +436,7 @@ BEGIN
     END;
     res := CHL.Length(codes.data);
 
-    n := STRINGS.Utf8To16(s, codes.wstr);
+    n := Strings.Utf8To16(s, codes.wstr);
 
     i := 0;
     WHILE i < n DO

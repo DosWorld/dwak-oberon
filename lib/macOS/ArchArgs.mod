@@ -1,11 +1,17 @@
 ﻿(*
     BSD 2-Clause License
 
+    Copyright (c) 2026-, DosWorld
     Copyright (c) 2020, Anton Krotov
     All rights reserved.
+
+    The macOS primitives behind the portable Args.  argv and envp are two
+    arrays of pointers the kernel hands over separately - MainArgv and
+    MainEnvp - rather than one block, and both are read straight out of them
+    with nothing to parse: the surface above them is lib/common/Args.mod.
 *)
 
-MODULE Args;
+MODULE ArchArgs;
 
 IMPORT SYSTEM, API;
 
@@ -24,7 +30,11 @@ BEGIN
     i := 0;
     len := LEN(s) - 1;
     IF (0 <= n) & (n <= argc + envc) & (n # argc) & (len > 0) THEN
-        SYSTEM.GET(API.MainParam + (n + 1) * SYSTEM.SIZE(INTEGER), ptr);
+        IF n < argc THEN
+            SYSTEM.GET(API.MainArgv + n * SYSTEM.SIZE(INTEGER), ptr)
+        ELSE
+            SYSTEM.GET(API.MainEnvp + (n - argc - 1) * SYSTEM.SIZE(INTEGER), ptr)
+        END;
         REPEAT
             SYSTEM.GET(ptr, c);
             s[i] := c;
@@ -51,20 +61,19 @@ VAR
     ptr: INTEGER;
 
 BEGIN
-    IF API.MainParam # 0 THEN
+    argc := API.MainArgc;
+    IF API.MainEnvp # 0 THEN
         envc := -1;
-        SYSTEM.GET(API.MainParam, argc);
         REPEAT
-            SYSTEM.GET(API.MainParam + (envc + argc + 3) * SYSTEM.SIZE(INTEGER), ptr);
+            SYSTEM.GET(API.MainEnvp + (envc + 1) * SYSTEM.SIZE(INTEGER), ptr);
             INC(envc)
         UNTIL ptr = 0
     ELSE
-        envc := 0;
-        argc := 0
+        envc := 0
     END
 END init;
 
 
 BEGIN
     init
-END Args.
+END ArchArgs.

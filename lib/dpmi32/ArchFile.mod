@@ -10,7 +10,7 @@
     still marks a failure.
 *)
 
-MODULE File;
+MODULE ArchFile;
 
 IMPORT SYSTEM, DOS, API;
 
@@ -41,6 +41,40 @@ BEGIN
 END Delete;
 
 
+(* Rename - move OldName onto NewName: they may name different directories, in
+   which case the file moves with the call.  DOS.Rename asks the LFN subfunction
+   first and the 8.3 one behind it, so a long name is reached on a host that has
+   them and a short one on a host that does not.
+   Parameters: OldName - the file to move; NewName - where to move it to.
+   Result: TRUE when it was renamed. *)
+PROCEDURE Rename* (OldName, NewName: ARRAY OF CHAR): BOOLEAN;
+BEGIN
+    RETURN DOS.Rename(SYSTEM.ADR(OldName[0]), SYSTEM.ADR(NewName[0]))
+END Rename;
+
+
+(* GetTime - when a file was last written, as the packed DOS date and time the
+   DOS services use: bits 0..4 seconds DIV 2, bits 5..10 minutes, bits 11..15
+   hours, bits 16..20 day, bits 21..24 month, bits 25..31 year - 1980.
+   Parameters: FName - the file to look at; time - receives the stamp.
+   Result: TRUE when the file is there, FALSE when it is not. *)
+PROCEDURE GetTime* (FName: ARRAY OF CHAR; VAR time: INTEGER): BOOLEAN;
+BEGIN
+    RETURN DOS.GetFileTime(SYSTEM.ADR(FName[0]), time)
+END GetTime;
+
+
+(* SetTime - stamp a file with a packed DOS date and time, in the same form
+   GetTime returns.
+   Parameters: FName - the file to stamp; time - the stamp to give it.
+   Result: TRUE when DOS set it, FALSE when the file is not there or is one it
+   will not open for writing. *)
+PROCEDURE SetTime* (FName: ARRAY OF CHAR; time: INTEGER): BOOLEAN;
+BEGIN
+    RETURN DOS.SetFileTime(SYSTEM.ADR(FName[0]), time)
+END SetTime;
+
+
 PROCEDURE Create* (FName: ARRAY OF CHAR): INTEGER;
 VAR
     h: INTEGER;
@@ -55,6 +89,16 @@ PROCEDURE Close* (F: INTEGER);
 BEGIN
     DOS.FileClose(F)
 END Close;
+
+
+(* Valid - TRUE when F is an open handle: one that Open, Create or Load
+   returned successfully.  The DOS open sets the handle to -1 when it fails.
+   Parameters: F - the handle.
+   Result: TRUE when F may be read, written, seeked or closed. *)
+PROCEDURE Valid* (F: INTEGER): BOOLEAN;
+BEGIN
+    RETURN F # -1
+END Valid;
 
 
 PROCEDURE Open* (FName: ARRAY OF CHAR; Mode: INTEGER): INTEGER;
@@ -95,6 +139,23 @@ BEGIN
     DOS.FileWrite(F, Buffer, Count, n)
     RETURN n
 END Write;
+
+
+(* Truncate - shrink or extend the file behind the open handle F to Size
+   bytes: a smaller size cuts the tail off, a larger one fills what it adds
+   with zeros, and where the handle reads and writes next is not moved by
+   this.  The DOS call behind it is asked for the LFN way first and, when
+   that one does not answer, done the older way - seek to the length and
+   write no bytes there - the same two-step fallback the name-taking calls
+   here use for the services themselves.
+   Parameters: F - the open handle; Size - the length to leave the file with.
+   Result: TRUE when the file is Size bytes long and the handle is back where
+   it was, FALSE when F is not an open handle, is not a file this process may
+   write, or Size is negative. *)
+PROCEDURE Truncate* (F, Size: INTEGER): BOOLEAN;
+BEGIN
+    RETURN DOS.Truncate(F, Size)
+END Truncate;
 
 
 PROCEDURE Load* (FName: ARRAY OF CHAR; VAR Size: INTEGER): INTEGER;
@@ -144,4 +205,4 @@ BEGIN
 END CreateDir;
 
 
-END File.
+END ArchFile.

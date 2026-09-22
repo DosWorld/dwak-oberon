@@ -9,7 +9,7 @@
 MODULE MSP430;
 
 IMPORT SYSTEM, IL, REG, CHL := CHUNKLISTS, ERRORS, WR := WRITER, HEX,
-       UTILS, C := CONSOLE, PROG, RTL := MSP430RTL;
+       UTILS, Out, PROG, RTL := MSP430RTL;
 
 
 CONST
@@ -1881,10 +1881,10 @@ BEGIN
     HEX.End;
     WR.Close;
 
-    C.Dashes;
-    C.String("  rom:  "); C.Int(TextSize); C.String(" of "); C.Int(rom); C.String("  ("); C.Int(TextSize * 100 DIV rom); C.StringLn("%)");
-    C.Ln;
-    C.String("  ram:  "); C.Int(Bss.size); C.String(" of "); C.Int(ram); C.String("  ("); C.Int(Bss.size * 100 DIV ram); C.StringLn("%)")
+    Out.StringLn("------------------------------------------------");
+    Out.String("  rom:  "); Out.Int(TextSize, 0); Out.String(" of "); Out.Int(rom, 0); Out.String("  ("); Out.Int(TextSize * 100 DIV rom, 0); Out.StringLn("%)");
+    Out.Ln;
+    Out.String("  ram:  "); Out.Int(Bss.size, 0); Out.String(" of "); Out.Int(ram, 0); Out.String("  ("); Out.Int(Bss.size * 100 DIV ram, 0); Out.StringLn("%)")
 END CodeGen;
 
 

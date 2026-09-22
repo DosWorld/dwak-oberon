@@ -8,7 +8,7 @@
 
 MODULE PROG;
 
-IMPORT SCAN, LISTS, ARITH, ERRORS, C := COLLECTIONS, IL, UTILS, TARGETS, STRINGS, PATHS;
+IMPORT SCAN, LISTS, ARITH, ERRORS, C := COLLECTIONS, IL, UTILS, TARGETS, Strings, PATHS;
 
 
 CONST
@@ -656,7 +656,7 @@ PROCEDURE enterStTypes (unit: UNIT);
             ident._type := _type
         END;
         upper := nameStr;
-        STRINGS.UpCase(upper);
+        Strings.ToUpper(upper);
         SCAN.setIdent(name, upper);
         ident := addIdent(unit, name, idTYPE);
         ident._type := _type
@@ -697,7 +697,7 @@ PROCEDURE enterStProcs (unit: UNIT);
             ident._type := program.stTypes.tNONE
         END;
         upper := nameStr;
-        STRINGS.UpCase(upper);
+        Strings.ToUpper(upper);
         SCAN.setIdent(name, upper);
         ident := addIdent(unit, name, tfunc);
         ident.stproc := nfunc;
@@ -1090,7 +1090,7 @@ VAR
             ident.export := TRUE
         END;
         upper := nameStr;
-        STRINGS.UpCase(upper);
+        Strings.ToUpper(upper);
         SCAN.setIdent(name, upper);
         ident := addIdent(sys, name, idtyp);
         ident.stproc := proc;

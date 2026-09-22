@@ -115,6 +115,81 @@ PROCEDURE FileOpen* (FName: ARRAY OF CHAR): INTEGER;
 END FileOpen;
 
 
+(* The calls below are the rest of the file interface ArchFile is built on.
+   Each one is a single syscall: the first word of the argument block carries
+   the function number, the words after it are the arguments, and the answer
+   comes back in the first word, which is what the syscallN helpers return.
+   The numbers match the dispatcher in tools/RVMxI.mod and the implementations
+   in the emulator's own HOST module (lib/Windows/HOST.mod).  Read and write
+   take a buffer address rather than an open array, because ArchFile.Read is
+   handed an address by its own caller and an open array cannot be built from
+   one. *)
+
+PROCEDURE FileReadAt* (F, Buffer, bytes: INTEGER): INTEGER;
+    RETURN syscall3(13, F, Buffer, bytes)
+END FileReadAt;
+
+
+PROCEDURE FileWriteAt* (F, Buffer, bytes: INTEGER): INTEGER;
+    RETURN syscall3(14, F, Buffer, bytes)
+END FileWriteAt;
+
+
+PROCEDURE FileSeek* (F, Offset, Origin: INTEGER): INTEGER;
+    RETURN syscall3(15, F, Offset, Origin)
+END FileSeek;
+
+
+PROCEDURE FileOpenMode* (FName: ARRAY OF CHAR; Mode: INTEGER): INTEGER;
+    RETURN syscall3(16, LEN(FName), SYSTEM.ADR(FName[0]), Mode)
+END FileOpenMode;
+
+
+PROCEDURE FileDelete* (FName: ARRAY OF CHAR): BOOLEAN;
+    RETURN syscall2(17, LEN(FName), SYSTEM.ADR(FName[0])) # 0
+END FileDelete;
+
+
+PROCEDURE FileRename* (OldName, NewName: ARRAY OF CHAR): BOOLEAN;
+    RETURN syscall4(18, LEN(OldName), SYSTEM.ADR(OldName[0]), LEN(NewName), SYSTEM.ADR(NewName[0])) # 0
+END FileRename;
+
+
+PROCEDURE FileExists* (FName: ARRAY OF CHAR): BOOLEAN;
+    RETURN syscall2(19, LEN(FName), SYSTEM.ADR(FName[0])) # 0
+END FileExists;
+
+
+PROCEDURE FileDirExists* (FName: ARRAY OF CHAR): BOOLEAN;
+    RETURN syscall2(20, LEN(FName), SYSTEM.ADR(FName[0])) # 0
+END FileDirExists;
+
+
+PROCEDURE FileMakeDir* (FName: ARRAY OF CHAR): BOOLEAN;
+    RETURN syscall2(21, LEN(FName), SYSTEM.ADR(FName[0])) # 0
+END FileMakeDir;
+
+
+PROCEDURE FileRemoveDir* (FName: ARRAY OF CHAR): BOOLEAN;
+    RETURN syscall2(22, LEN(FName), SYSTEM.ADR(FName[0])) # 0
+END FileRemoveDir;
+
+
+PROCEDURE FileGetTime* (FName: ARRAY OF CHAR): INTEGER;
+    RETURN syscall2(23, LEN(FName), SYSTEM.ADR(FName[0]))
+END FileGetTime;
+
+
+PROCEDURE FileSetTime* (FName: ARRAY OF CHAR; time: INTEGER): BOOLEAN;
+    RETURN syscall3(24, LEN(FName), SYSTEM.ADR(FName[0]), time) # 0
+END FileSetTime;
+
+
+PROCEDURE FileTruncate* (F, Size: INTEGER): BOOLEAN;
+    RETURN syscall2(25, F, Size) # 0
+END FileTruncate;
+
+
 PROCEDURE chmod* (FName: ARRAY OF CHAR);
 VAR
     a: INTEGER;

@@ -8,7 +8,7 @@
 
 MODULE SCAN;
 
-IMPORT TXT := TEXTDRV, ARITH, S := STRINGS, ERRORS, LISTS;
+IMPORT TXT := TEXTDRV, ARITH, Strings, ERRORS, LISTS;
 
 
 CONST
@@ -109,9 +109,9 @@ PROCEDURE enterKW (s: KEYWORD; idx: INTEGER);
 BEGIN
     KW[idx].lower := s;
     KW[idx].upper := s;
-    S.UpCase(KW[idx].upper);
-    KW[idx].uhash := S.HashStr(KW[idx].upper);
-    KW[idx].lhash := S.HashStr(KW[idx].lower);
+    Strings.ToUpper(KW[idx].upper);
+    KW[idx].uhash := Strings.HashStr(KW[idx].upper);
+    KW[idx].lhash := Strings.HashStr(KW[idx].lower);
 END enterKW;
 
 
@@ -141,7 +141,7 @@ VAR
     hash: INTEGER;
 
 BEGIN
-    hash := S.HashStr(s);
+    hash := Strings.HashStr(s);
     str := strings.first(STRING);
     res := NIL;
     WHILE str # NIL DO
@@ -175,7 +175,7 @@ END nextc;
 PROCEDURE setIdent* (VAR ident: IDENT; s: IDSTR);
 BEGIN
     ident.s := s;
-    ident.hash := S.HashStr(s)
+    ident.hash := Strings.HashStr(s)
 END setIdent;
 
 
@@ -186,22 +186,22 @@ VAR
 
 BEGIN
     c := text.peak;
-    ASSERT(S.letter(c));
+    ASSERT(Strings.Letter(c));
 
     i := 0;
-    WHILE (i < IDLEN - 1) & (S.letter(c) OR S.digit(c)) DO
+    WHILE (i < IDLEN - 1) & (Strings.Letter(c) OR Strings.Digit(c)) DO
         lex.ident.s[i] := c;
         INC(i);
         c := nextc(text)
     END;
 
     lex.ident.s[i] := 0X;
-    lex.ident.hash := S.HashStr(lex.ident.s);
+    lex.ident.hash := Strings.HashStr(lex.ident.s);
     lex.sym := checkKW(lex.ident);
 
-    IF S.letter(c) OR S.digit(c) THEN
+    IF Strings.Letter(c) OR Strings.Digit(c) THEN
         ERRORS.WarningMsg(lex.pos.line, lex.pos.col, 2);
-        WHILE S.letter(c) OR S.digit(c) DO
+        WHILE Strings.Letter(c) OR Strings.Digit(c) DO
             c := nextc(text)
         END
     END
@@ -230,7 +230,7 @@ VAR
 
 BEGIN
     c := text.peak;
-    ASSERT(S.digit(c));
+    ASSERT(Strings.Digit(c));
 
     i := 0;
 
@@ -239,13 +239,13 @@ BEGIN
     sym := lxINTEGER;
     hex := FALSE;
 
-    WHILE S.digit(c) DO
+    WHILE Strings.Digit(c) DO
         push(num, i, c);
         c := nextc(text)
     END;
 
-    WHILE S.hexdigit(c) OR LowerCase & ("a" <= c) & (c <= "f") DO
-        S.cap(c);
+    WHILE Strings.HexDigit(c) OR LowerCase & ("a" <= c) & (c <= "f") DO
+        Strings.Cap(c);
         push(num, i, c);
         c := nextc(text);
         hex := TRUE
@@ -278,7 +278,7 @@ BEGIN
                 upto := TRUE
             END;
 
-            WHILE S.digit(c) DO
+            WHILE Strings.Digit(c) DO
                 push(num, i, c);
                 c := nextc(text)
             END;
@@ -292,8 +292,8 @@ BEGIN
                     c := nextc(text)
                 END;
 
-                IF S.digit(c) THEN
-                    WHILE S.digit(c) DO
+                IF Strings.Digit(c) THEN
+                    WHILE Strings.Digit(c) DO
                         push(num, i, c);
                         c := nextc(text)
                     END
@@ -642,23 +642,23 @@ BEGIN
     REPEAT
         c := text.peak;
 
-        WHILE S.space(c) DO
+        WHILE Strings.Space(c) DO
             c := nextc(text)
         END;
 
         lex.pos.line := text.line;
         lex.pos.col  := text.col;
 
-        IF S.letter(c) THEN
+        IF Strings.Letter(c) THEN
             ident(text, lex)
-        ELSIF S.digit(c) THEN
+        ELSIF Strings.Digit(c) THEN
             number(text, lex)
         ELSIF (c = '"') OR (c = "'") THEN
             string(text, lex, c)
         ELSIF delimiters[ORD(c)] THEN
             lex.sym := delimiter(text, c)
         ELSIF c = "$" THEN
-            IF S.letter(nextc(text)) THEN
+            IF Strings.Letter(nextc(text)) THEN
                 ident(text, lex);
                 IF lex.sym = lxIF THEN
                     IF ~_if THEN

@@ -8,7 +8,7 @@
 
 MODULE PATHS;
 
-IMPORT STRINGS, UTILS;
+IMPORT Strings, UTILS;
 
 
 CONST
@@ -31,8 +31,8 @@ BEGIN
     len := LENGTH(fname);
     pos1 := len - 1;
     pos2 := pos1;
-    STRINGS.search(fname, pos1, slash, FALSE);
-    STRINGS.search(fname, pos2,   ".", FALSE);
+    Strings.Search(fname, pos1, slash, FALSE);
+    Strings.Search(fname, pos2,   ".", FALSE);
 
     path := fname;
     path[pos1 + 1] := 0X;
@@ -43,9 +43,9 @@ BEGIN
 
     INC(pos1);
 
-    STRINGS.copy(fname, name, pos1, 0, pos2 - pos1);
+    Strings.CopyRange(fname, name, pos1, 0, pos2 - pos1);
     name[pos2 - pos1] := 0X;
-    STRINGS.copy(fname, ext, pos2, 0, len - pos2);
+    Strings.CopyRange(fname, ext, pos2, 0, len - pos2);
     ext[len - pos2] := 0X
 END split;
 
