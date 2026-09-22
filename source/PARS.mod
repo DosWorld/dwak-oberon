@@ -52,6 +52,7 @@ TYPE
         fname*:      PATH;
         path:        PATH;
         lib_path:    PATH;
+        common_lib_path: PATH;
         ext:         PATH;
         modname:     PATH;
         scanner:     SCAN.SCANNER;
@@ -68,7 +69,7 @@ TYPE
         designator*: EXPRPROC;
         chkreturn:   RETPROC;
 
-        create*:     PROCEDURE (path, lib_path: PATH; StatSeq: STATPROC; expression, designator: EXPRPROC; chkreturn: RETPROC): PARSER
+        create*:     PROCEDURE (path, lib_path, common_lib_path: PATH; StatSeq: STATPROC; expression, designator: EXPRPROC; chkreturn: RETPROC): PARSER
 
     END;
 
@@ -271,6 +272,12 @@ BEGIN
                         STRINGS.append(fname, _name);
                         STRINGS.append(fname, UTILS.FILE_EXT);
                         unit := PROG.getUnit(fname)
+                    END;
+                    IF unit = NIL THEN
+                        fname := parser.common_lib_path;
+                        STRINGS.append(fname, _name);
+                        STRINGS.append(fname, UTILS.FILE_EXT);
+                        unit := PROG.getUnit(fname)
                     END
                 END
             END;
@@ -278,13 +285,24 @@ BEGIN
             IF unit # NIL THEN
                 check(unit.closed, pos, 31)
             ELSE
-                parser2 := parser.create(path, parser.lib_path,
+                parser2 := parser.create(path, parser.lib_path, parser.common_lib_path,
                     parser.StatSeq, parser.expression, parser.designator, parser.chkreturn);
 
                 IF ~parser2.open(parser2, _name, ext) THEN
                     IF (path # parser.lib_path) & ~_in THEN
                         destroy(parser2);
-                        parser2 := parser.create(parser.lib_path, parser.lib_path,
+                        parser2 := parser.create(parser.lib_path, parser.lib_path, parser.common_lib_path,
+                            parser.StatSeq, parser.expression, parser.designator, parser.chkreturn);
+
+                        IF ~parser2.open(parser2, _name, ext) THEN
+                            destroy(parser2);
+                            parser2 := parser.create(parser.common_lib_path, parser.lib_path, parser.common_lib_path,
+                                parser.StatSeq, parser.expression, parser.designator, parser.chkreturn);
+                            check(parser2.open(parser2, _name, ext), pos, 29)
+                        END
+                    ELSIF (path # parser.common_lib_path) & ~_in THEN
+                        destroy(parser2);
+                        parser2 := parser.create(parser.common_lib_path, parser.lib_path, parser.common_lib_path,
                             parser.StatSeq, parser.expression, parser.designator, parser.chkreturn);
                         check(parser2.open(parser2, _name, ext), pos, 29)
                     ELSE
@@ -578,11 +596,11 @@ BEGIN
     |PROG.sf_cdecl:
         res := PROG.cdecl
     |PROG.sf_ccall:
-        IF TARGETS.OS IN {TARGETS.osWIN32, TARGETS.osLINUX32, TARGETS.osKOS} THEN
+        IF TARGETS.OS IN {TARGETS.osWIN32, TARGETS.osLINUX32, TARGETS.osDPMI32} THEN
             res := PROG.ccall
         ELSIF TARGETS.OS = TARGETS.osWIN64 THEN
             res := PROG.win64
-        ELSIF TARGETS.OS = TARGETS.osLINUX64 THEN
+        ELSIF TARGETS.OS IN {TARGETS.osLINUX64, TARGETS.osMACOS64} THEN
             res := PROG.systemv
         END
     |PROG.sf_win64:
@@ -594,13 +612,13 @@ BEGIN
     |PROG.sf_fastcall:
         res := PROG.fastcall
     |PROG.sf_oberon:
-        IF TARGETS.OS IN {TARGETS.osWIN32, TARGETS.osLINUX32, TARGETS.osKOS} THEN
+        IF TARGETS.OS IN {TARGETS.osWIN32, TARGETS.osLINUX32, TARGETS.osDPMI32} THEN
             res := PROG.default32
-        ELSIF TARGETS.OS IN {TARGETS.osWIN64, TARGETS.osLINUX64} THEN
+        ELSIF TARGETS.OS IN {TARGETS.osWIN64, TARGETS.osLINUX64, TARGETS.osMACOS64} THEN
             res := PROG.default64
         END
     |PROG.sf_windows:
-        IF TARGETS.OS = TARGETS.osWIN32 THEN
+        IF TARGETS.OS IN {TARGETS.osWIN32, TARGETS.osDPMI32} THEN
             res := PROG.stdcall
         ELSIF TARGETS.OS = TARGETS.osWIN64 THEN
             res := PROG.win64
@@ -673,7 +691,7 @@ BEGIN
     ELSE
         CASE TARGETS.BitDepth OF
         |16: call := PROG.default16
-        |32: IF TARGETS.CPU = TARGETS.cpuX86 THEN
+        |32: IF TARGETS.CPU = TARGETS.cpuI386P THEN
                  call := PROG.default32
              ELSE
                  call := PROG.cdecl
@@ -1096,9 +1114,6 @@ VAR
         IF _import = NIL THEN
 
             IF parser.main & proc.export & TARGETS.Dll THEN
-                IF TARGETS.target = TARGETS.KolibriOSDLL THEN
-                    check((proc.name.s # "lib_init") & (proc.name.s # "version"), pos, 114)
-                END;
                 IL.AddExp(label, proc.name.s);
                 proc.proc.used := TRUE
             END;
@@ -1282,7 +1297,7 @@ BEGIN
         CONSOLE.Ln
     END;
 
-    IF TARGETS.CPU IN {TARGETS.cpuX86, TARGETS.cpuAMD64} THEN
+    IF TARGETS.CPU IN {TARGETS.cpuI386P, TARGETS.cpuAMD64} THEN
         IL.fname(parser.fname)
     END;
 
@@ -1358,15 +1373,16 @@ BEGIN
 END NewParser;
 
 
-PROCEDURE create* (path, lib_path: PATH; StatSeq: STATPROC; expression, designator: EXPRPROC; chkreturn: RETPROC): PARSER;
+PROCEDURE create* (path, lib_path, common_lib_path: PATH; StatSeq: STATPROC; expression, designator: EXPRPROC; chkreturn: RETPROC): PARSER;
 VAR
     parser: PARSER;
 
 BEGIN
     parser := NewParser();
 
-    parser.path     := path;
-    parser.lib_path := lib_path;
+    parser.path            := path;
+    parser.lib_path        := lib_path;
+    parser.common_lib_path := common_lib_path;
     parser.ext      := UTILS.FILE_EXT;
     parser.fname    := path;
     parser.modname  := "";

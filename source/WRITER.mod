@@ -53,7 +53,8 @@ VAR
 
 BEGIN
     FOR i := 0 TO 7 DO
-        WriteByte(UTILS.Byte(n, i))
+        WriteByte(n MOD 256);
+        n := ASR(n, 8)
     END
 END Write64LE;
 

@@ -9,7 +9,11 @@
 MODULE AMD64;
 
 IMPORT IL, BIN, WR := WRITER, CHL := CHUNKLISTS, LISTS, PATHS, PROG, TARGETS,
-       REG, UTILS, S := STRINGS, PE32, ELF, X86, ERRORS;
+       REG, UTILS, S := STRINGS, PE32, ELF, I386, ERRORS
+$IF (BITS_64)
+       , MACHO
+$END
+       ;
 
 
 CONST
@@ -77,47 +81,47 @@ VAR
 
 PROCEDURE OutByte (b: BYTE);
 BEGIN
-    X86.OutByte(b)
+    I386.OutByte(b)
 END OutByte;
 
 
 PROCEDURE OutByte2 (a, b: BYTE);
 BEGIN
-    X86.OutByte(a);
-    X86.OutByte(b)
+    I386.OutByte(a);
+    I386.OutByte(b)
 END OutByte2;
 
 
 PROCEDURE OutByte3 (a, b, c: BYTE);
 BEGIN
-    X86.OutByte(a);
-    X86.OutByte(b);
-    X86.OutByte(c)
+    I386.OutByte(a);
+    I386.OutByte(b);
+    I386.OutByte(c)
 END OutByte3;
 
 
 PROCEDURE OutInt (n: INTEGER);
 BEGIN
-    X86.OutByte(n MOD 256);
-    X86.OutByte(UTILS.Byte(n, 1));
-    X86.OutByte(UTILS.Byte(n, 2));
-    X86.OutByte(UTILS.Byte(n, 3))
+    I386.OutByte(n MOD 256);
+    I386.OutByte(UTILS.Byte(n, 1));
+    I386.OutByte(UTILS.Byte(n, 2));
+    I386.OutByte(UTILS.Byte(n, 3))
 END OutInt;
 
 
 PROCEDURE short (n: INTEGER): INTEGER;
-    RETURN 2 * ORD(X86.isByte(n))
+    RETURN 2 * ORD(I386.isByte(n))
 END short;
 
 
 PROCEDURE long (n: INTEGER): INTEGER;
-    RETURN 40H * ORD(~X86.isByte(n))
+    RETURN 40H * ORD(~I386.isByte(n))
 END long;
 
 
 PROCEDURE OutIntByte (n: INTEGER);
 BEGIN
-    IF X86.isByte(n) THEN
+    IF I386.isByte(n) THEN
         OutByte(n MOD 256)
     ELSE
         OutInt(n)
@@ -159,7 +163,7 @@ PROCEDURE lea (reg, offset, section: INTEGER);
 BEGIN
     Rex(0, reg);
     OutByte2(8DH, 05H + 8 * (reg MOD 8)); (* lea reg, [rip + offset] *)
-    X86.Reloc(section, offset)
+    I386.Reloc(section, offset)
 END lea;
 
 
@@ -276,7 +280,7 @@ END GetAnyReg;
 PROCEDURE callimp (label: INTEGER);
 BEGIN
     OutByte2(0FFH, 15H);    (* call qword[rip + label + IMP] *)
-    X86.Reloc(sIMP, label)
+    I386.Reloc(sIMP, label)
 END callimp;
 
 
@@ -301,7 +305,7 @@ BEGIN
     IF label < 0 THEN
         callimp(-label)
     ELSE
-        X86.call(label)
+        I386.call(label)
     END
 END CallRTL;
 
@@ -377,7 +381,7 @@ BEGIN
         oprlongc(reg, n, oprr)
     ELSE
         Rex(reg, 0);
-        X86.oprc(op, reg, n)
+        I386.oprc(op, reg, n)
     END
 END oprc;
 
@@ -433,7 +437,7 @@ BEGIN
         push(reg2);
         drop
     ELSE
-        X86.pushc(n)
+        I386.pushc(n)
     END
 END pushc;
 
@@ -455,31 +459,31 @@ END neg;
 PROCEDURE movzx (reg1, reg2, offs: INTEGER; word: BOOLEAN); (* movzx reg1, byte/word[reg2 + offs] *)
 BEGIN
     Rex(reg2, reg1);
-    X86.movzx(reg1, reg2, offs, word)
+    I386.movzx(reg1, reg2, offs, word)
 END movzx;
 
 
 PROCEDURE movmr32 (reg1, offs, reg2: INTEGER); (* mov dword[reg1+offs], reg2_32 *)
 BEGIN
-    X86._movrm(reg2, reg1, offs, 32, TRUE)
+    I386._movrm(reg2, reg1, offs, 32, TRUE)
 END movmr32;
 
 
 PROCEDURE movrm32 (reg1, reg2, offs: INTEGER); (* mov reg1_32, dword[reg2+offs] *)
 BEGIN
-    X86._movrm(reg1, reg2, offs, 32, FALSE)
+    I386._movrm(reg1, reg2, offs, 32, FALSE)
 END movrm32;
 
 
 PROCEDURE movmr (reg1, offs, reg2: INTEGER); (* mov qword[reg1+offs], reg2 *)
 BEGIN
-    X86._movrm(reg2, reg1, offs, 64, TRUE)
+    I386._movrm(reg2, reg1, offs, 64, TRUE)
 END movmr;
 
 
 PROCEDURE movrm (reg1, reg2, offs: INTEGER); (* mov reg1, qword[reg2+offs] *)
 BEGIN
-    X86._movrm(reg1, reg2, offs, 64, FALSE)
+    I386._movrm(reg1, reg2, offs, 64, FALSE)
 END movrm;
 
 
@@ -542,7 +546,7 @@ END opxx;
 
 PROCEDURE jcc (cc, label: INTEGER); (* jcc label *)
 BEGIN
-    X86.jcc(cc, label)
+    I386.jcc(cc, label)
 END jcc;
 
 
@@ -554,7 +558,7 @@ BEGIN
     ELSE
         OutByte(0C1H)
     END;
-    X86.shift(op, reg MOD 8);
+    I386.shift(op, reg MOD 8);
     IF n # 1 THEN
         OutByte(n)
     END
@@ -671,7 +675,7 @@ BEGIN
         cc := setnc
     END;
     OutByte2(7AH, 3 + reg DIV 8); (* jp L *)
-    X86.setcc(cc, reg)
+    I386.setcc(cc, reg)
     (* L: *)
 END fcmp;
 
@@ -702,7 +706,7 @@ BEGIN
         CASE opcode OF
 
         |IL.opJMP:
-            X86.jmp(param1)
+            I386.jmp(param1)
 
         |IL.opCALL, IL.opWIN64CALL, IL.opSYSVCALL:
             CASE opcode OF
@@ -710,7 +714,7 @@ BEGIN
             |IL.opWIN64CALL: Win64Passing(param2)
             |IL.opSYSVCALL:  SysVPassing(param2)
             END;
-            X86.call(param1)
+            I386.call(param1)
 
         |IL.opCALLP, IL.opWIN64CALLP, IL.opSYSVCALLP:
             UnOp(reg1);
@@ -735,14 +739,14 @@ BEGIN
             callimp(param1)
 
         |IL.opLABEL:
-            X86.SetLabel(param1)
+            I386.SetLabel(param1)
 
         |IL.opERR:
             CallRTL(IL._error)
 
         |IL.opONERR:
             pushc(param2);
-            X86.jmp(param1)
+            I386.jmp(param1)
 
         |IL.opPUSHC:
             pushc(param2)
@@ -807,7 +811,7 @@ BEGIN
         |IL.opENTER:
             ASSERT(R.top = -1);
 
-            X86.SetLabel(param1);
+            I386.SetLabel(param1);
 
             param3 := cmd.param3;
 
@@ -906,7 +910,7 @@ BEGIN
             IF param2 > 0 THEN
                 OutByte3(0C2H, (param2 * 8) MOD 256, (param2 * 8) DIV 256) (* ret param2*8 *)
             ELSE
-                X86.ret
+                I386.ret
             END
 
         |IL.opSAVES:
@@ -958,13 +962,13 @@ BEGIN
             reg1 := GetAnyReg();
             Rex(0, reg1);  (* mov reg1, qword[rip + param2 + BSS] *)
             OutByte2(8BH, 05H + 8 * (reg1 MOD 8));
-            X86.Reloc(sBSS, param2)
+            I386.Reloc(sBSS, param2)
 
         |IL.opGLOAD8, IL.opGLOAD16:
             reg1 := GetAnyReg();
             Rex(0, reg1);  (* movzx reg1, byte/word[rip + param2 + BSS] *)
             OutByte3(0FH, 0B6H + ORD(opcode = IL.opGLOAD16), 05H + 8 * (reg1 MOD 8));
-            X86.Reloc(sBSS, param2)
+            I386.Reloc(sBSS, param2)
 
         |IL.opGLOAD32:
             reg1 := GetAnyReg();
@@ -1132,18 +1136,18 @@ BEGIN
             END;
 
             drop;
-            cc := X86.cond(opcode);
+            cc := I386.cond(opcode);
 
             next := cmd.next;
             IF next.opcode = IL.opJNZ THEN
                 jcc(cc, next.param1);
                 cmd := next
             ELSIF next.opcode = IL.opJZ THEN
-                jcc(X86.inv0(cc), next.param1);
+                jcc(I386.inv0(cc), next.param1);
                 cmd := next
             ELSE
                 reg1 := GetAnyReg();
-                X86.setcc(cc + 16, reg1);
+                I386.setcc(cc + 16, reg1);
                 andrc(reg1, 1)
             END
 
@@ -1198,13 +1202,13 @@ BEGIN
             cmprc(reg1, 64);
             jcc(jb, L);
             xor(reg1, reg1);
-            X86.jmp(label);
-            X86.SetLabel(L);
+            I386.jmp(label);
+            I386.SetLabel(L);
             Rex(reg2, reg1);
             OutByte3(0FH, 0A3H, 0C0H + 8 * (reg1 MOD 8) + reg2 MOD 8); (* bt reg2, reg1 *)
-            X86.setcc(setc, reg1);
+            I386.setcc(setc, reg1);
             andrc(reg1, 1);
-            X86.SetLabel(label);
+            I386.SetLabel(label);
             drop
 
         |IL.opINL:
@@ -1212,19 +1216,19 @@ BEGIN
             Rex(reg1, 0);
             OutByte2(0FH, 0BAH); (* bt reg1, param2 *)
             OutByte2(0E0H + reg1 MOD 8, param2);
-            X86.setcc(setc, reg1);
+            I386.setcc(setc, reg1);
             andrc(reg1, 1)
 
         |IL.opNOT:
             UnOp(reg1);
             test(reg1);
-            X86.setcc(sete, reg1);
+            I386.setcc(sete, reg1);
             andrc(reg1, 1)
 
         |IL.opORD:
             UnOp(reg1);
             test(reg1);
-            X86.setcc(setne, reg1);
+            I386.setcc(setne, reg1);
             andrc(reg1, 1)
 
         |IL.opABS:
@@ -1241,17 +1245,17 @@ BEGIN
             label := NewLabel();
             jcc(je, label);
             movrc(reg1, 1);
-            X86.SetLabel(label);
+            I386.SetLabel(label);
             test(reg2);
             label := NewLabel();
             jcc(je, label);
             movrc(reg2, 1);
-            X86.SetLabel(label);
+            I386.SetLabel(label);
             cmprr(reg1, reg2);
             IF opcode = IL.opEQB THEN
-                X86.setcc(sete, reg1)
+                I386.setcc(sete, reg1)
             ELSE
-                X86.setcc(setne, reg1)
+                I386.setcc(setne, reg1)
             END;
             andrc(reg1, 1)
 
@@ -1306,14 +1310,14 @@ BEGIN
                     DEC(param2, 4)
                 END;
                 IF param2 MOD 8 >= 2 THEN
-                    X86.movrm16(reg3, reg1, n);
-                    X86.movmr16(reg2, n, reg3);
+                    I386.movrm16(reg3, reg1, n);
+                    I386.movmr16(reg2, n, reg3);
                     INC(n, 2);
                     DEC(param2, 2)
                 END;
                 IF param2 MOD 8 = 1 THEN
-                    X86.movrm8(reg3, reg1, n);
-                    X86.movmr8(reg2, n, reg3);
+                    I386.movrm8(reg3, reg1, n);
+                    I386.movmr8(reg2, n, reg3);
                 END;
                 drop;
                 drop;
@@ -1390,7 +1394,7 @@ BEGIN
         |IL.opTYPEGD:
             UnOp(reg1);
             PushAll(0);
-            X86.pushm(reg1, -8);
+            I386.pushm(reg1, -8);
             pushc(param2 * tcount);
             CallRTL(IL._guardrec);
             GetRegA
@@ -1455,13 +1459,13 @@ BEGIN
 
         |IL.opSAVE8:
             BinOp(reg2, reg1);
-            X86.movmr8(reg1, 0, reg2);
+            I386.movmr8(reg1, 0, reg2);
             drop;
             drop
 
         |IL.opSAVE16:
             BinOp(reg2, reg1);
-            X86.movmr16(reg1, 0, reg2);
+            I386.movmr16(reg1, 0, reg2);
             drop;
             drop
 
@@ -1490,7 +1494,7 @@ BEGIN
             END;
             jcc(cc, label);
             movrc(reg1, param2);
-            X86.SetLabel(label)
+            I386.SetLabel(label)
 
         |IL.opSBOOL:
             BinOp(reg2, reg1);
@@ -1557,7 +1561,7 @@ BEGIN
                     movzx(reg1, reg1, param2, FALSE);
                     cmd := next
                 |IL.opLOAD64_PARAM:
-                    X86.pushm(reg1, param2);
+                    I386.pushm(reg1, param2);
                     drop;
                     cmd := next
                 ELSE
@@ -1751,7 +1755,7 @@ BEGIN
             ASSERT(reg2 = rcx);
             Rex(reg1, 0);
             OutByte(0D3H);
-            X86.shift(opcode, reg1 MOD 8); (* shift reg1, cl *)
+            I386.shift(opcode, reg1 MOD 8); (* shift reg1, cl *)
             drop
 
         |IL.opASR1, IL.opROR1, IL.opLSL1, IL.opLSR1:
@@ -1768,7 +1772,7 @@ BEGIN
             ASSERT(reg1 = rcx);
             Rex(reg2, 0);
             OutByte(0D3H);
-            X86.shift(opcode, reg2 MOD 8); (* shift reg2, cl *)
+            I386.shift(opcode, reg2 MOD 8); (* shift reg2, cl *)
             drop;
             drop;
             ASSERT(REG.GetReg(R, reg2))
@@ -1787,8 +1791,8 @@ BEGIN
             END;
             drop;
             drop;
-            X86._movrm(reg1, reg1, 0, param2 * 8, FALSE);
-            X86._movrm(reg1, reg2, 0, param2 * 8, TRUE)
+            I386._movrm(reg1, reg1, 0, param2 * 8, FALSE);
+            I386._movrm(reg1, reg2, 0, param2 * 8, TRUE)
 
         |IL.opCHKIDX:
             UnOp(reg1);
@@ -1849,8 +1853,8 @@ BEGIN
             reg1 := GetAnyReg();
 
             CASE opcode OF
-            |IL.opEQP, IL.opEQIP: X86.setcc(sete,  reg1)
-            |IL.opNEP, IL.opNEIP: X86.setcc(setne, reg1)
+            |IL.opEQP, IL.opEQIP: I386.setcc(sete,  reg1)
+            |IL.opNEP, IL.opNEIP: I386.setcc(setne, reg1)
             END;
 
             andrc(reg1, 1)
@@ -1920,7 +1924,7 @@ BEGIN
                 OutByte(44H)
             END;
             OutByte3(0FH, 10H, 05H + 8 * (xmm MOD 8));
-            X86.Reloc(sDATA, Numbers_Offs + Numbers_Count * 8);
+            I386.Reloc(sDATA, Numbers_Offs + Numbers_Count * 8);
             NewNumber(UTILS.splitf(float, a, b))
 
         |IL.opSAVEF, IL.opSAVEFI:
@@ -1969,7 +1973,7 @@ BEGIN
                 OutByte(44H)
             END;
             OutByte3(0FH, 54H + 3 * ORD(opcode = IL.opUMINF), 05H + (xmm MOD 8) * 8);
-            X86.Reloc(sDATA, Numbers_Offs + 16 * ORD(opcode = IL.opFABS))
+            I386.Reloc(sDATA, Numbers_Offs + 16 * ORD(opcode = IL.opFABS))
 
         |IL.opFLT:
             UnOp(reg1);
@@ -2012,7 +2016,7 @@ BEGIN
                 OutByte(44H)
             END;
             OutByte3(0FH, 10H, 05H + 8 * (xmm MOD 8));
-            X86.Reloc(sDATA, Numbers_Offs + 32)
+            I386.Reloc(sDATA, Numbers_Offs + 32)
 
         |IL.opPACK, IL.opPACKC:
             IF opcode = IL.opPACK THEN
@@ -2085,19 +2089,19 @@ BEGIN
             pushDA(stroffs + param2)
 
         |IL.opVADR_PARAM:
-            X86.pushm(rbp, param2 * 8)
+            I386.pushm(rbp, param2 * 8)
 
         |IL.opLOAD64_PARAM:
             UnOp(reg1);
-            X86.pushm(reg1, 0);
+            I386.pushm(reg1, 0);
             drop
 
         |IL.opLLOAD64_PARAM:
-            X86.pushm(rbp, param2 * 8)
+            I386.pushm(rbp, param2 * 8)
 
         |IL.opGLOAD64_PARAM:
             OutByte2(0FFH, 35H); (* push qword[rip + param2 + BSS] *)
-            X86.Reloc(sBSS, param2)
+            I386.Reloc(sBSS, param2)
 
         |IL.opCONST_PARAM:
             pushc(param2)
@@ -2148,7 +2152,7 @@ BEGIN
             ELSE
                 (* mov qword[rip + param1 - 4 + BSS], param2 *)
                 OutByte3(48H, 0C7H, 05H);
-                X86.Reloc(sBSS, param1 - 4);
+                I386.Reloc(sBSS, param1 - 4);
                 OutInt(param2)
             END
 
@@ -2206,7 +2210,7 @@ BEGIN
             UnOp(reg1);
             cmprc(reg1, 64);
             n := param2 * 8;
-            OutByte2(73H, 5 + 3 * ORD(~X86.isByte(n))); (* jnb L *)
+            OutByte2(73H, 5 + 3 * ORD(~I386.isByte(n))); (* jnb L *)
             Rex(0, reg1);
             OutByte3(0FH, 0ABH + 8 * ORD(opcode = IL.opLADR_EXCL), 45H + long(n) + 8 * (reg1 MOD 8));
             OutIntByte(n); (* bts/btr qword[rbp+n], reg1 *)
@@ -2247,7 +2251,7 @@ BEGIN
     ASSERT(UTILS.Align(Numbers_Offs, 16));
 
     entry := NewLabel();
-    X86.SetLabel(entry);
+    I386.SetLabel(entry);
 
     IF target = TARGETS.Win64DLL THEN
         dllret := NewLabel();
@@ -2258,24 +2262,38 @@ BEGIN
         test(rax);
         jcc(je, dllret);
         pushc(0)
+    ELSIF target = TARGETS.MacOS64 THEN
+        (* LC_MAIN is called with argc/argv/envp in rdi/rsi/rdx.
+           API.init copies this tuple before the runtime switches stacks. *)
+        push(rdx); push(rsi); push(rdi);
+        push(rsp)
     ELSIF target = TARGETS.Linux64 THEN
         push(rsp)
     ELSE
         pushc(0)
     END;
 
-    lea(rax, entry, sCODE);
+    IF target IN {TARGETS.Win64C, TARGETS.Win64GUI} THEN
+        (* A real 64-bit image address for RTL.init, with a DIR64 loader fixup.
+           Other references remain RIP-relative and need no base relocation. *)
+        OutByte2(48H, 0B8H); (* mov rax, imm64 *)
+        I386.Reloc(BIN.RCODE, entry);
+        OutInt(0) (* upper half of the eight-byte relocation slot *)
+    ELSE
+        lea(rax, entry, sCODE)
+    END;
     push(rax);
     pushDA(0); (* TYPES *)
     pushc(tcount);
     pushDA(ModName_Offs); (* MODNAME *)
     CallRTL(IL._init);
 
-    IF target IN {TARGETS.Win64C, TARGETS.Win64GUI, TARGETS.Linux64} THEN
+    IF target IN {TARGETS.Win64C, TARGETS.Win64GUI, TARGETS.Linux64, TARGETS.MacOS64} THEN
         L := NewLabel();
         pushc(0);
         push(rsp);
-        pushc(1024 * 1024 * stack_size);
+        (* RTL._new returns the payload after a 16-byte allocation header. *)
+        pushc(1024 * 1024 * stack_size + 16);
         pushc(0);
         CallRTL(IL._new);
         pop(rax);
@@ -2285,7 +2303,7 @@ BEGIN
         addrc(rax, 1024 * 1024 * stack_size - 8);
         drop;
         mov(rsp, rax);
-        X86.SetLabel(L)
+        I386.SetLabel(L)
     END
 END prolog;
 
@@ -2320,20 +2338,20 @@ VAR
 
 BEGIN
     IF target = TARGETS.Win64DLL THEN
-        X86.SetLabel(dllret);
-        X86.ret
+        I386.SetLabel(dllret);
+        I386.ret
     ELSIF target = TARGETS.Linux64SO THEN
         sofinit := NewLabel();
-        X86.ret;
-        X86.SetLabel(sofinit);
+        I386.ret;
+        I386.SetLabel(sofinit);
         CallRTL(IL._sofinit);
-        X86.ret
+        I386.ret
     ELSE
         pushc(0);
         CallRTL(IL._exit)
     END;
 
-    X86.fixup;
+    I386.fixup;
 
     i := 0;
     WHILE i < tcount DO
@@ -2378,7 +2396,7 @@ VAR
 
 BEGIN
     Xmm[0] := 0;
-    X86.align16(TRUE);
+    I386.align16(TRUE);
     tcount := CHL.Length(IL.codes.types);
 
     Win64RegPar[0] := rcx;
@@ -2413,7 +2431,7 @@ BEGIN
     prog := BIN.create(IL.codes.lcount);
     BIN.SetParams(prog, IL.codes.bss, 1, WCHR(1), WCHR(0));
 
-    X86.SetProgram(prog);
+    I386.SetProgram(prog);
 
     prolog(modname, target, options.stack);
     translate(IL.codes.commands, tcount * 8);
@@ -2424,6 +2442,12 @@ BEGIN
         PE32.write(prog, outname, FALSE, target = TARGETS.Win64C, target = TARGETS.Win64DLL, TRUE, options.PE32FileAlignment)
     ELSIF TARGETS.OS = TARGETS.osLINUX64 THEN
         ELF.write(prog, outname, sofinit, target = TARGETS.Linux64SO, TRUE)
+    ELSIF TARGETS.OS = TARGETS.osMACOS64 THEN
+$IF (BITS_64)
+        MACHO.write(prog, outname)
+$ELSE
+        ERRORS.Error(203) (* Mach-O requires a 64-bit compiler host. *)
+$END
     END
 END CodeGen;
 

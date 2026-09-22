@@ -287,8 +287,8 @@ BEGIN
         CHL.PushByte(data, (page DIV 65536) MOD 256);
         CHL.PushByte(data, (page DIV 16777216) MOD 256);
 
-        (* IMAGE_BASE_RELOCATION.SizeOfBlock = 8 + 2 * cnt *)
-        rva := 8 + 2 * cnt;
+        (* Every block starts on a DWORD boundary; type 0 pads an odd count. *)
+        rva := 8 + 2 * (cnt + cnt MOD 2);
         CHL.PushByte(data, rva MOD 256);
         CHL.PushByte(data, (rva DIV 256) MOD 256);
         CHL.PushByte(data, (rva DIV 65536) MOD 256);
@@ -299,6 +299,9 @@ BEGIN
             CHL.PushByte(data, rva MOD 256);
             CHL.PushByte(data, (rva DIV 256) MOD 256);
             INC(i)
+        END;
+        IF ODD(cnt) THEN
+            CHL.PushByte(data, 0); CHL.PushByte(data, 0) (* IMAGE_REL_BASED_ABSOLUTE *)
         END
     END;
 
@@ -357,7 +360,12 @@ BEGIN
         ELSE
             delta := delta0 - offset
         END;
-        BIN.put32le(code, offset, delta);
+        IF amd64 & (reloc.opcode IN {BIN.RCODE, BIN.RDATA, BIN.RBSS, BIN.RIMP}) THEN
+            BIN.put64le(code, offset, delta)
+        ELSE
+            (* RIP-relative displacements are still exactly four bytes. *)
+            BIN.put32le(code, offset, delta)
+        END;
 
         reloc := reloc.next(BIN.RELOC)
     END

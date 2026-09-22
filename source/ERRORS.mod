@@ -217,6 +217,7 @@ BEGIN
     |206: Error1("bad parameter <target>")
     |207: Error3('inputfile name extension must be "', UTILS.FILE_EXT, '"')
     |208: Error1("not enough RAM")
+    |209: Error1("unsupported LE relocation or DLL import")
     END
 END Error;
 

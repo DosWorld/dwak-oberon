@@ -14,11 +14,20 @@ IMPORT ST := STATEMENTS, PARS, UTILS, PATHS, PROG, C := CONSOLE,
 
 CONST
 
+    DEF_DWAK_OBERON = "DWAK_OBERON";
+
     DEF_WINDOWS   = "WINDOWS";
+    DEF_DOS       = "DOS";
+    DEF_DPMI32    = "DPMI32";
     DEF_LINUX     = "LINUX";
-    DEF_KOLIBRIOS = "KOLIBRIOS";
-    DEF_CPU_X86   = "CPU_X86";
-    DEF_CPU_X8664 = "CPU_X8664";
+    DEF_MACOS     = "MACOS";
+
+    DEF_CPU_I386  = "CPU_I386";
+    DEF_CPU_AMD64 = "CPU_AMD64";
+
+    DEF_BITS_16   = "BITS_16";
+    DEF_BITS_32   = "BITS_32";
+    DEF_BITS_64   = "BITS_64";
 
 
 PROCEDURE keys (VAR options: PROG.OPTIONS; VAR out: PARS.PATH);
@@ -189,6 +198,7 @@ VAR
     ext:        PARS.PATH;
     app_path:   PARS.PATH;
     lib_path:   PARS.PATH;
+    common_lib_path: PARS.PATH;
     modname:    PARS.PATH;
     outname:    PARS.PATH;
     param:      PARS.PATH;
@@ -215,14 +225,16 @@ BEGIN
         path := temp
     END;
     lib_path := path;
+    common_lib_path := path;
 
     UTILS.GetArg(1, inname);
     STRINGS.replace(inname, "\", UTILS.slash);
     STRINGS.replace(inname, "/", UTILS.slash);
 
     C.Ln;
-    C.String("Akron Oberon Compiler v"); C.Int(UTILS.vMajor); C.String("."); C.Int2(UTILS.vMinor);
+    C.String("DWAK Oberon Compiler v"); C.Int(UTILS.vMajor); C.String("."); C.Int2(UTILS.vMinor);
         C.String(" ("); C.Int(UTILS.bit_depth); C.StringLn("-bit) " + UTILS.Date);
+    C.StringLn("Copyright (c) 2026, DosWord");
     C.StringLn("Copyright (c) 2018-2025, Anton Krotov");
 
     IF inname = "" THEN
@@ -234,34 +246,36 @@ BEGIN
             OutTargetItem(TARGETS.Win64GUI, "Windows64 GUI");
             OutTargetItem(TARGETS.Win64DLL, "Windows64 DLL");
             OutTargetItem(TARGETS.Linux64, "Linux64 Exec");
-            OutTargetItem(TARGETS.Linux64SO, "Linux64 SO")
+            OutTargetItem(TARGETS.Linux64SO, "Linux64 SO");
+            OutTargetItem(TARGETS.MacOS64, "macOS64 Console")
         END;
-        OutTargetItem(TARGETS.Win32C, "Windows32 Console");
-        OutTargetItem(TARGETS.Win32GUI, "Windows32 GUI");
-        OutTargetItem(TARGETS.Win32DLL, "Windows32 DLL");
-        OutTargetItem(TARGETS.HXDOS, "HX-DOS console (DOS extender)");
-        OutTargetItem(TARGETS.HXDOSDLL, "HX-DOS DLL (DOS extender)");
-        OutTargetItem(TARGETS.Linux32, "Linux32 Exec");
-        OutTargetItem(TARGETS.Linux32SO, "Linux32 SO");
-        OutTargetItem(TARGETS.KolibriOS, "KolibriOS Exec");
-        OutTargetItem(TARGETS.KolibriOSDLL, "KolibriOS DLL");
+        IF UTILS.bit_depth > 16 THEN
+            OutTargetItem(TARGETS.Win32C, "Windows32 Console");
+            OutTargetItem(TARGETS.Win32GUI, "Windows32 GUI");
+            OutTargetItem(TARGETS.Win32DLL, "Windows32 DLL");
+            OutTargetItem(TARGETS.Linux32, "Linux32 Exec");
+            OutTargetItem(TARGETS.Linux32SO, "Linux32 SO");
+            OutTargetItem(TARGETS.DPMI32PE, "DOS PE-executable (HX-DOS Extender)");
+            OutTargetItem(TARGETS.DPMI32DLL, "DOS DLL (HX-DOS Extender)");
+            OutTargetItem(TARGETS.DPMI32LE, "DOS LE-executable (old DOS-extenders)");
+            OutTargetItem(TARGETS.STM32CM3, "STM32 Cortex-M3 microcontrollers")
+        END;
         OutTargetItem(TARGETS.MSP430, "MSP430x{1,2}xx microcontrollers");
-        OutTargetItem(TARGETS.STM32CM3, "STM32 Cortex-M3 microcontrollers");
         C.Ln;
         C.StringLn("optional settings:"); C.Ln;
-        C.StringLn("  -out <file name>      output"); C.Ln;
-        C.StringLn("  -stk <size>           set size of stack in Mbytes (Windows, Linux, KolibriOS, HX-DOS)"); C.Ln;
+        C.StringLn("  -out <file name>      output");
+        C.StringLn("  -stk <size>           set size of stack in Mbytes (Windows, Linux, HX-DOS, LE-DOS)");
         C.StringLn("  -nochk <'ptibcwra'>   disable runtime checking (pointers, types, indexes,");
-        C.StringLn("                        BYTE, CHR, WCHR)"); C.Ln;
-        C.StringLn("  -lower                allow lower case for keywords (default)"); C.Ln;
-        C.StringLn("  -upper                only upper case for keywords"); C.Ln;
-        C.StringLn("  -def <identifier>     define conditional compilation symbol"); C.Ln;
-        C.StringLn("  -ver <major.minor>    set version of program (KolibriOS DLL)"); C.Ln;
-        C.StringLn("  -ram <size>           set size of RAM in bytes (MSP430) or Kbytes (STM32)"); C.Ln;
-        C.StringLn("  -rom <size>           set size of ROM in bytes (MSP430) or Kbytes (STM32)"); C.Ln;
-        C.StringLn("  -tab <width>          set width for tabs"); C.Ln;
-        C.StringLn("  -uses                 list imported modules"); C.Ln;
-        C.StringLn("  -fa <size>            set PE32 file alignment {512 (def.), 1024, 2048, 4096}"); C.Ln;
+        C.StringLn("                        BYTE, CHR, WCHR)");
+        C.StringLn("  -lower                allow lower case for keywords (default)");
+        C.StringLn("  -upper                only upper case for keywords");
+        C.StringLn("  -def <identifier>     define conditional compilation symbol");
+        C.StringLn("  -ver <major.minor>    set version of program (LE-DOS)");
+        C.StringLn("  -ram <size>           set size of RAM in bytes (MSP430) or Kbytes (STM32)");
+        C.StringLn("  -rom <size>           set size of ROM in bytes (MSP430) or Kbytes (STM32)");
+        C.StringLn("  -tab <width>          set width for tabs");
+        C.StringLn("  -uses                 list imported modules");
+        C.StringLn("  -fa <size>            set PE32 file alignment {512 (def.), 1024, 2048, 4096}");
         UTILS.Exit(0)
     END;
 
@@ -309,6 +323,11 @@ BEGIN
     STRINGS.append(lib_path, TARGETS.LibDir);
     STRINGS.append(lib_path, UTILS.slash);
 
+    STRINGS.append(common_lib_path, "lib");
+    STRINGS.append(common_lib_path, UTILS.slash);
+    STRINGS.append(common_lib_path, "COMMON");
+    STRINGS.append(common_lib_path, UTILS.slash);
+
     keys(options, outname);
     TEXTDRV.setTabSize(options.tab);
     IF outname = "" THEN
@@ -324,25 +343,28 @@ BEGIN
 
     PARS.init(options);
 
+    SCAN.NewDef(DEF_DWAK_OBERON);
+
     CASE TARGETS.OS OF
     |TARGETS.osNONE:
     |TARGETS.osWIN32,
      TARGETS.osWIN64:   SCAN.NewDef(DEF_WINDOWS)
+    |TARGETS.osDPMI32:  SCAN.NewDef(DEF_DOS); SCAN.NewDef(DEF_DPMI32)
     |TARGETS.osLINUX32,
      TARGETS.osLINUX64: SCAN.NewDef(DEF_LINUX)
-    |TARGETS.osKOS:     SCAN.NewDef(DEF_KOLIBRIOS)
+    |TARGETS.osMACOS64: SCAN.NewDef(DEF_MACOS)
     END;
 
     CASE TARGETS.CPU OF
-    |TARGETS.cpuX86:    SCAN.NewDef(DEF_CPU_X86)
-    |TARGETS.cpuAMD64:  SCAN.NewDef(DEF_CPU_X8664)
-    |TARGETS.cpuMSP430:
-    |TARGETS.cpuTHUMB:
-    |TARGETS.cpuRVM32I:
-    |TARGETS.cpuRVM64I:
+    |TARGETS.cpuI386P:  SCAN.NewDef(DEF_CPU_I386); SCAN.NewDef(DEF_BITS_32)
+    |TARGETS.cpuAMD64:  SCAN.NewDef(DEF_CPU_AMD64); SCAN.NewDef(DEF_BITS_64)
+    |TARGETS.cpuMSP430: SCAN.NewDef(DEF_BITS_16)
+    |TARGETS.cpuTHUMB:  SCAN.NewDef(DEF_BITS_32)
+    |TARGETS.cpuRVM32I: SCAN.NewDef(DEF_BITS_32)
+    |TARGETS.cpuRVM64I: SCAN.NewDef(DEF_BITS_64)
     END;
 
-    ST.compile(path, lib_path, modname, outname, target, options);
+    ST.compile(path, lib_path, common_lib_path, modname, outname, target, options);
 
     time := UTILS.GetTickCount() - UTILS.time;
     C.Dashes;

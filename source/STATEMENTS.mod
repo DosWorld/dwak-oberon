@@ -10,7 +10,7 @@ MODULE STATEMENTS;
 
 IMPORT
 
-    PARS, PROG, SCAN, ARITH, STRINGS, LISTS, IL, X86, AMD64, MSP430, THUMB, RVMxI,
+    PARS, PROG, SCAN, ARITH, STRINGS, LISTS, IL, OPT, I386, AMD64, MSP430, THUMB, RVMxI,
     ERRORS, UTILS, AVL := AVLTREES, CONSOLE, C := COLLECTIONS, TARGETS;
 
 
@@ -718,7 +718,7 @@ BEGIN
             ELSE
                 label := IL.NewLabel();
                 IL.not;
-                IL.AndOrOpt(label);
+                IL.Jmp(IL.opJZ, label);
                 IL.OnError(pos.line, errASSERT);
                 IL.SetLabel(label)
             END
@@ -2694,7 +2694,7 @@ BEGIN
                 IL.Jmp(IL.opJMP, label)
             END
         ELSE
-            IL.AndOrOpt(label)
+            IL.Jmp(IL.opJZ, label)
         END;
 
         IF _if THEN
@@ -2755,7 +2755,7 @@ BEGIN
             IL.Jmp(IL.opJMP, label)
         END
     ELSE
-        IL.AndOrOpt(label);
+        IL.Jmp(IL.opJZ, label);
         L.param1 := label
     END;
 
@@ -3353,7 +3353,7 @@ BEGIN
     getproc(rtl, "_strcmpw",  IL._strcmpw);
     getproc(rtl, "_init",     IL._init);
 
-    IF CPU IN {TARGETS.cpuX86, TARGETS.cpuAMD64} THEN
+    IF CPU IN {TARGETS.cpuI386P, TARGETS.cpuAMD64} THEN
         getproc(rtl, "_error",    IL._error);
         getproc(rtl, "_divmod",   IL._divmod);
         getproc(rtl, "_exit",     IL._exit);
@@ -3367,7 +3367,7 @@ BEGIN
            off the main module by name, so the EXE has to export them. Nothing
            in the Oberon source names them, so without this they would be
            dropped long before the export is made. *)
-        IF target = TARGETS.HXDOS THEN
+        IF target = TARGETS.DPMI32PE THEN
             useproc(rtl, "_heapnew");
             useproc(rtl, "_heapdispose")
         END
@@ -3391,7 +3391,7 @@ BEGIN
 END setrtl;
 
 
-PROCEDURE compile* (path, lib_path, modname, outname: PARS.PATH; target: INTEGER; options: PROG.OPTIONS);
+PROCEDURE compile* (path, lib_path, common_lib_path, modname, outname: PARS.PATH; target: INTEGER; options: PROG.OPTIONS);
 VAR
     parser: PARS.PARSER;
     ext: PARS.PATH;
@@ -3418,23 +3418,30 @@ BEGIN
     IL.init(CPU);
 
     IF TARGETS.RTL THEN
-        parser := PARS.create(path, lib_path, StatSeq, expression, designator, chkreturn);
+        parser := PARS.create(path, lib_path, common_lib_path, StatSeq, expression, designator, chkreturn);
         IF parser.open(parser, UTILS.RTL_NAME, UTILS.FILE_EXT) THEN
             parser.parse(parser);
             PARS.destroy(parser)
         ELSE
             PARS.destroy(parser);
-            parser := PARS.create(lib_path, lib_path, StatSeq, expression, designator, chkreturn);
+            parser := PARS.create(lib_path, lib_path, common_lib_path, StatSeq, expression, designator, chkreturn);
             IF parser.open(parser, UTILS.RTL_NAME, UTILS.FILE_EXT) THEN
                 parser.parse(parser);
                 PARS.destroy(parser)
             ELSE
-                ERRORS.FileNotFound(lib_path, UTILS.RTL_NAME, UTILS.FILE_EXT)
+                PARS.destroy(parser);
+                parser := PARS.create(common_lib_path, lib_path, common_lib_path, StatSeq, expression, designator, chkreturn);
+                IF parser.open(parser, UTILS.RTL_NAME, UTILS.FILE_EXT) THEN
+                    parser.parse(parser);
+                    PARS.destroy(parser)
+                ELSE
+                    ERRORS.FileNotFound(lib_path, UTILS.RTL_NAME, UTILS.FILE_EXT)
+                END
             END
         END
     END;
 
-    parser := PARS.create(path, lib_path, StatSeq, expression, designator, chkreturn);
+    parser := PARS.create(path, lib_path, common_lib_path, StatSeq, expression, designator, chkreturn);
     parser.main := TRUE;
 
     IF parser.open(parser, modname, UTILS.FILE_EXT) THEN
@@ -3455,11 +3462,13 @@ BEGIN
 
     PROG.DelUnused(IL.DelImport);
 
+    OPT.Optimize;
+
     IL.set_bss(PROG.program.bss);
 
     CASE CPU OF
     |TARGETS.cpuAMD64:   AMD64.CodeGen(outname, target, options)
-    |TARGETS.cpuX86:       X86.CodeGen(outname, target, options)
+    |TARGETS.cpuI386P:       I386.CodeGen(outname, target, options)
     |TARGETS.cpuMSP430: MSP430.CodeGen(outname, target, options)
     |TARGETS.cpuTHUMB:   THUMB.CodeGen(outname, target, options)
     |TARGETS.cpuRVM32I,
@@ -3469,7 +3478,7 @@ BEGIN
     (* The output has been written, so nothing can still need the command
        stream, the code lists or the symbol tables. Give them back rather than
        letting them sit until the process dies. *)
-    X86.Free;
+    I386.Free;
     IL.Free;
     PROG.Free
 

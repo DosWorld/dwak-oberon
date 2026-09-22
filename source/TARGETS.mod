@@ -1,4 +1,4 @@
-﻿(*
+(*
     BSD 2-Clause License
 
     Copyright (c) 2026-, DosWorld
@@ -17,28 +17,27 @@ CONST
     Win32C*       =  1;
     Win32GUI*     =  2;
     Win32DLL*     =  3;
-    KolibriOS*    =  4;
-    KolibriOSDLL* =  5;
-    Win64C*       =  6;
-    Win64GUI*     =  7;
-    Win64DLL*     =  8;
-    Linux32*      =  9;
-    Linux32SO*    = 10;
-    Linux64*      = 11;
-    Linux64SO*    = 12;
-    STM32CM3*     = 13;
-    RVM32I*       = 14;
-    RVM64I*       = 15;
-    KolibriOSKer* = 16;
-    KolibriOSDrv* = 17;
-    HXDOS*        = 18;
-    HXDOSDLL*     = 19;
+    Win64C*       =  4;
+    Win64GUI*     =  5;
+    Win64DLL*     =  6;
+    Linux32*      =  7;
+    Linux32SO*    =  8;
+    Linux64*      =  9;
+    Linux64SO*    = 10;
+    STM32CM3*     = 11;
+    RVM32I*       = 12;
+    RVM64I*       = 13;
+    DPMI32PE*     = 14;
+    DPMI32DLL*    = 15;
+    DPMI32LE*        = 16;
+    MacOS64*      = 17;
 
-    cpuX86* = 0; cpuAMD64* = 1; cpuMSP430* = 2; cpuTHUMB* = 3;
+    cpuI386P* = 0; cpuAMD64* = 1; cpuMSP430* = 2; cpuTHUMB* = 3;
     cpuRVM32I* = 4; cpuRVM64I* = 5;
 
     osNONE*    = 0;  osWIN32*   = 1;  osWIN64* = 2;
-    osLINUX32* = 3;  osLINUX64* = 4;  osKOS*   = 5;
+    osLINUX32* = 3;  osLINUX64* = 4;
+    osDPMI32*  = 5;  osMACOS64* = 6;
 
     noDISPOSE = {MSP430, STM32CM3, RVM32I, RVM64I};
 
@@ -62,7 +61,7 @@ TYPE
 
 VAR
 
-    Targets*: ARRAY 20 OF TARGET;
+    Targets*: ARRAY 18 OF TARGET;
 
     CPUs: ARRAY 6 OF
         RECORD
@@ -111,11 +110,11 @@ BEGIN
         LibDir := Targets[i].LibDir;
         FileExt := Targets[i].FileExt;
 
-        Import := (OS IN {osWIN32, osWIN64, osKOS}) & (target # KolibriOSKer);
+        Import := (OS IN {osWIN32, osWIN64, osDPMI32}) & ~(target IN {DPMI32LE});
         Dispose := ~(target IN noDISPOSE);
         RTL := ~(target IN noRTL);
-        Dll := target IN {Linux32SO, Linux64SO, Win32DLL, Win64DLL, KolibriOSDLL, KolibriOSDrv, HXDOSDLL};
-        WinLin := OS IN {osWIN32, osLINUX32, osWIN64, osLINUX64};
+        Dll := target IN {Linux32SO, Linux64SO, Win32DLL, Win64DLL, DPMI32DLL};
+        WinLin := OS IN {osWIN32, osLINUX32, osWIN64, osLINUX64, osDPMI32, osMACOS64};
         WordSize := BitDepth DIV 8;
         AdrSize  := WordSize
     END
@@ -133,7 +132,7 @@ END EnterCPU;
 
 
 BEGIN
-    EnterCPU(cpuX86,    32, 1, TRUE);
+    EnterCPU(cpuI386P,  32, 1, TRUE);
     EnterCPU(cpuAMD64,  64, 1, TRUE);
     EnterCPU(cpuMSP430, 16, 2, TRUE);
     EnterCPU(cpuTHUMB,  32, 2, TRUE);
@@ -141,23 +140,21 @@ BEGIN
     EnterCPU(cpuRVM64I, 64, 8, TRUE);
 
     Enter( MSP430,        cpuMSP430,  0,  osNONE,     "msp430",      "MSP430",    ".hex");
-    Enter( Win32C,        cpuX86,     8,  osWIN32,    "win32con",    "Windows",   ".exe");
-    Enter( Win32GUI,      cpuX86,     8,  osWIN32,    "win32gui",    "Windows",   ".exe");
-    Enter( Win32DLL,      cpuX86,     8,  osWIN32,    "win32dll",    "Windows",   ".dll");
-    Enter( KolibriOS,     cpuX86,     8,  osKOS,      "kosexe",      "KolibriOS", "");
-    Enter( KolibriOSDLL,  cpuX86,     8,  osKOS,      "kosdll",      "KolibriOS", ".obj");
+    Enter( Win32C,        cpuI386P,   8,  osWIN32,    "win32con",    "Windows",   ".exe");
+    Enter( Win32GUI,      cpuI386P,   8,  osWIN32,    "win32gui",    "Windows",   ".exe");
+    Enter( Win32DLL,      cpuI386P,   8,  osWIN32,    "win32dll",    "Windows",   ".dll");
     Enter( Win64C,        cpuAMD64,   8,  osWIN64,    "win64con",    "Windows",   ".exe");
     Enter( Win64GUI,      cpuAMD64,   8,  osWIN64,    "win64gui",    "Windows",   ".exe");
     Enter( Win64DLL,      cpuAMD64,   8,  osWIN64,    "win64dll",    "Windows",   ".dll");
-    Enter( Linux32,       cpuX86,     8,  osLINUX32,  "linux32exe",  "Linux",     "");
-    Enter( Linux32SO,     cpuX86,     8,  osLINUX32,  "linux32so",   "Linux",     ".so");
+    Enter( Linux32,       cpuI386P,   8,  osLINUX32,  "linux32exe",  "Linux",     "");
+    Enter( Linux32SO,     cpuI386P,   8,  osLINUX32,  "linux32so",   "Linux",     ".so");
     Enter( Linux64,       cpuAMD64,   8,  osLINUX64,  "linux64exe",  "Linux",     "");
     Enter( Linux64SO,     cpuAMD64,   8,  osLINUX64,  "linux64so",   "Linux",     ".so");
     Enter( STM32CM3,      cpuTHUMB,   4,  osNONE,     "stm32cm3",    "STM32CM3",  ".hex");
     Enter( RVM32I,        cpuRVM32I,  4,  osNONE,     "rvm32i",      libRVM32I,   ".bin");
     Enter( RVM64I,        cpuRVM64I,  8,  osNONE,     "rvm64i",      libRVM64I,   ".bin");
-    Enter( KolibriOSKer,  cpuX86,     8,  osKOS,      "kosker",      "KOSKER",    ".bin");
-    Enter( KolibriOSDrv,  cpuX86,     8,  osKOS,      "kosdrv",      "KOSDRV",    ".dll");
-    Enter( HXDOS,         cpuX86,     8,  osWIN32,    "hxdos",       "HXDOS",     ".exe");
-    Enter( HXDOSDLL,      cpuX86,     8,  osWIN32,    "hxdosdll",    "HXDOS",     ".dll");
+    Enter( DPMI32PE,      cpuI386P,   8,  osDPMI32,   "dpmi32pe",    "dpmi32",    ".exe");
+    Enter( DPMI32DLL,     cpuI386P,   8,  osDPMI32,   "dpmi32dll",   "dpmi32",    ".dll");
+    Enter( DPMI32LE,         cpuI386P,   8,  osDPMI32,   "dpmi32le",       "dpmi32",    ".exe");
+    Enter( MacOS64,       cpuAMD64,   8,  osMACOS64,  "macos64",     "macOS",     "");
 END TARGETS.

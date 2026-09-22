@@ -1127,7 +1127,7 @@ BEGIN
         EnterProc(unit, "inf",    idSYSFUNC, sysINF);
     END;
 
-    IF TARGETS.CPU IN {TARGETS.cpuX86, TARGETS.cpuAMD64} THEN
+    IF TARGETS.CPU IN {TARGETS.cpuI386P, TARGETS.cpuAMD64} THEN
         EnterProc(unit, "copy",   idSYSPROC, sysCOPY)
     END;
 
@@ -1227,11 +1227,12 @@ BEGIN
     program.options := options;
 
     CASE TARGETS.OS OF
-    |TARGETS.osWIN32:    program.sysflags := {sf_oberon, sf_windows, sf_stdcall, sf_cdecl, sf_ccall, sf_fastcall, sf_noalign}
+    |TARGETS.osWIN32,
+     TARGETS.osDPMI32:   program.sysflags := {sf_oberon, sf_windows, sf_stdcall, sf_cdecl, sf_ccall, sf_fastcall, sf_noalign}
     |TARGETS.osLINUX32:  program.sysflags := {sf_oberon, sf_linux, sf_stdcall, sf_cdecl, sf_ccall, sf_fastcall, sf_noalign}
-    |TARGETS.osKOS:      program.sysflags := {sf_oberon, sf_stdcall, sf_cdecl, sf_ccall, sf_fastcall, sf_noalign}
     |TARGETS.osWIN64:    program.sysflags := {sf_oberon, sf_windows, sf_win64, sf_systemv, sf_ccall, sf_noalign}
     |TARGETS.osLINUX64:  program.sysflags := {sf_oberon, sf_linux, sf_win64, sf_systemv, sf_ccall, sf_noalign}
+    |TARGETS.osMACOS64:  program.sysflags := {sf_oberon, sf_win64, sf_systemv, sf_ccall, sf_noalign}
     |TARGETS.osNONE:     program.sysflags := {sf_code}
     END;
 

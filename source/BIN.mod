@@ -155,6 +155,16 @@ BEGIN
 END put32le;
 
 
+PROCEDURE put64le* (_array: CHL.BYTELIST; idx, x: INTEGER);
+VAR i: INTEGER;
+BEGIN
+    FOR i := 0 TO 7 DO
+        CHL.SetByte(_array, idx + i, x MOD 256);
+        x := ASR(x, 8)
+    END
+END put64le;
+
+
 PROCEDURE PutData32LE* (program: PROGRAM; x: INTEGER);
 VAR
     i: INTEGER;

@@ -5,7 +5,7 @@
     All rights reserved.
 
     Hardcoded HX-DOS MZ stub DPMIST32.BIN (512 bytes).
-    Source: C:\dos\c\HX\BIN\DPMIST32.BIN (HX DOS extender by Japheth, freeware).
+    Source: DPMIST32.BIN (HX DOS extender by Japheth, freeware).
     DPMIST32 starts DPMILD32.EXE (searched in PATH); DPMILD32 loads HDPMI32
     if no DPMI host is present. No external files are read at compile time.
 *)

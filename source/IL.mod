@@ -161,7 +161,7 @@ TYPE
     (* Commands are made in bulk and every one of them has the same size, so
        they are carved out of chunks instead of being allocated one by one. A
        chunk is a single block as far as the heap is concerned and holds SLOTS
-       commands, which on the hxdos target turns a hundred thousand blocks into
+       commands, which on the dpmi32pe target turns a hundred thousand blocks into
        a few hundred and keeps the allocator's block list short. Memory is only
        ever returned a chunk at a time, so an individual command is parked for
        reuse rather than disposed. *)
@@ -206,6 +206,7 @@ TYPE
 
     CODES = RECORD
 
+        cpu*:       INTEGER;    (* target of this command stream *)
         commands*:  COMMAND;    (* the head of the stream *)
         last:       COMMAND;    (* where the next command goes *)
         begcall:    CMDSTACK;
@@ -231,7 +232,6 @@ TYPE
 VAR
 
     codes*: CODES;
-    CPU: INTEGER;
 
     pool:     COMMAND;  (* the commands given back, linked through next *)
     chunks:   CHUNK;    (* every chunk handed out, newest first *)
@@ -530,102 +530,9 @@ END AddRec;
 
 
 PROCEDURE insert (cur, nov: COMMAND);
-VAR
-    old_opcode, param2: INTEGER;
-
-
-    PROCEDURE set (cur: COMMAND; opcode, param2: INTEGER);
-    BEGIN
-        cur.opcode := opcode;
-        cur.param1 := cur.param2;
-        cur.param2 := param2
-    END set;
-
-
 BEGIN
-    IF CPU IN {TARGETS.cpuX86, TARGETS.cpuAMD64, TARGETS.cpuMSP430} THEN
-
-        old_opcode := cur.opcode;
-        param2 := nov.param2;
-
-        IF (nov.opcode = opPARAM) & (param2 = 1) THEN
-
-            CASE old_opcode OF
-            |opGLOAD64: cur.opcode := opGLOAD64_PARAM
-            |opLLOAD64: cur.opcode := opLLOAD64_PARAM
-            |opLOAD64:  cur.opcode := opLOAD64_PARAM
-            |opGLOAD32: cur.opcode := opGLOAD32_PARAM
-            |opLLOAD32: cur.opcode := opLLOAD32_PARAM
-            |opLOAD32:  cur.opcode := opLOAD32_PARAM
-            |opSADR:    cur.opcode := opSADR_PARAM
-            |opVADR:    cur.opcode := opVADR_PARAM
-            |opCONST:   cur.opcode := opCONST_PARAM
-            ELSE
-                old_opcode := -1
-            END
-
-        ELSIF old_opcode = opLADR THEN
-
-            CASE nov.opcode OF
-            |opSAVEC: set(cur, opLADR_SAVEC, param2)
-            |opSAVE:  cur.opcode := opLADR_SAVE
-            |opINC:   cur.opcode := opLADR_INC
-            |opDEC:   cur.opcode := opLADR_DEC
-            |opINCB:  cur.opcode := opLADR_INCB
-            |opDECB:  cur.opcode := opLADR_DECB
-            |opINCL:  cur.opcode := opLADR_INCL
-            |opEXCL:  cur.opcode := opLADR_EXCL
-            |opUNPK:  cur.opcode := opLADR_UNPK
-            |opINCC:  set(cur, opLADR_INCC, param2)
-            |opINCCB: set(cur, opLADR_INCCB, param2)
-            |opDECCB: set(cur, opLADR_DECCB, param2)
-            |opINCLC: set(cur, opLADR_INCLC, param2)
-            |opEXCLC: set(cur, opLADR_EXCLC, param2)
-            ELSE
-                old_opcode := -1
-            END
-
-        ELSIF (nov.opcode = opSAVEC) & (old_opcode = opGADR) THEN
-            set(cur, opGADR_SAVEC, param2)
-
-        ELSIF (nov.opcode = opMULC) & (old_opcode = opMULC) THEN
-            cur.param2 := cur.param2 * param2
-
-        ELSIF (nov.opcode = opADDC) & (old_opcode = opADDC) THEN
-            INC(cur.param2, param2)
-
-        ELSE
-            old_opcode := -1
-        END
-
-    ELSIF CPU IN {TARGETS.cpuTHUMB, TARGETS.cpuRVM32I, TARGETS.cpuRVM64I} THEN
-
-        old_opcode := cur.opcode;
-        param2 := nov.param2;
-
-        IF (old_opcode = opLADR) & (nov.opcode = opSAVE) THEN
-            cur.opcode := opLADR_SAVE
-        ELSIF (old_opcode = opLADR) & (nov.opcode = opINCC) THEN
-            set(cur, opLADR_INCC, param2)
-        ELSIF (nov.opcode = opMULC) & (old_opcode = opMULC) THEN
-            cur.param2 := cur.param2 * param2
-        ELSIF (nov.opcode = opADDC) & (old_opcode = opADDC) THEN
-            INC(cur.param2, param2)
-        ELSE
-            old_opcode := -1
-        END
-
-    ELSE
-        old_opcode := -1
-    END;
-
-    IF old_opcode = -1 THEN
-        link(cur, nov);
-        codes.last := nov
-    ELSE
-        recycle(nov);
-        codes.last := cur
-    END
+    link(cur, nov);
+    codes.last := nov
 END insert;
 
 
@@ -697,13 +604,6 @@ BEGIN
 END AddCmd0;
 
 
-PROCEDURE delete (cmd: COMMAND);
-BEGIN
-    unlink(cmd);
-    recycle(cmd)
-END delete;
-
-
 PROCEDURE delete2* (first, last: COMMAND);
 VAR
     cur, next: COMMAND;
@@ -726,99 +626,9 @@ END delete2;
 
 
 PROCEDURE Jmp* (opcode: INTEGER; label: INTEGER);
-VAR
-    prev: COMMAND;
-    not:  BOOLEAN;
-
 BEGIN
-    prev := codes.last;
-    not := prev.opcode = opNOT;
-    IF not THEN
-        IF opcode = opJNZ THEN
-            opcode := opJZ
-        ELSIF opcode = opJZ THEN
-            opcode := opJNZ
-        ELSE
-            not := FALSE
-        END
-    END;
-
-    AddCmd2(opcode, label, label);
-
-    IF not THEN
-        delete(prev)
-    END
+    AddCmd2(opcode, label, label)
 END Jmp;
-
-
-PROCEDURE AndOrOpt* (VAR label: INTEGER);
-VAR
-    cur, prev: COMMAND;
-    i, op, l: INTEGER;
-    jz, not: BOOLEAN;
-
-BEGIN
-    cur := codes.last;
-    not := cur.opcode = opNOT;
-    IF not THEN
-        cur := cur.prev
-    END;
-
-    IF cur.opcode = opAND THEN
-        op := opAND
-    ELSIF cur.opcode = opOR THEN
-        op := opOR
-    ELSE
-        op := -1
-    END;
-
-    cur := codes.last;
-
-    IF op # -1 THEN
-        IF not THEN
-            IF op = opAND THEN
-                op := opOR
-            ELSE (* op = opOR *)
-                op := opAND
-            END;
-            prev := cur.prev;
-            delete(cur);
-            cur := prev
-        END;
-
-        FOR i := 1 TO 9 DO
-            IF i = 8 THEN
-                l := cur.param1
-            ELSIF i = 9 THEN
-                jz := cur.opcode = opJZ
-            END;
-            prev := cur.prev;
-            delete(cur);
-            cur := prev
-        END;
-
-        setlast(cur);
-
-        IF op = opAND THEN
-            label := l;
-            jz := ~jz
-        END;
-
-        IF jz THEN
-            Jmp(opJZ, label)
-        ELSE
-            Jmp(opJNZ, label)
-        END;
-
-        IF op = opOR THEN
-            SetLabel(l)
-        END
-    ELSE
-        Jmp(opJZ, label)
-    END;
-
-    setlast(codes.last)
-END AndOrOpt;
 
 
 PROCEDURE OnError* (line, error: INTEGER);
@@ -858,24 +668,14 @@ END New;
 
 
 PROCEDURE not*;
-VAR
-    prev: COMMAND;
 BEGIN
-    prev := codes.last;
-    IF prev.opcode = opNOT THEN
-        codes.last := prev.prev;
-        delete(prev)
-    ELSE
-        AddCmd0(opNOT)
-    END
+    AddCmd0(opNOT)
 END not;
 
 
 PROCEDURE _ord*;
 BEGIN
-    IF (codes.last.opcode # opAND) & (codes.last.opcode # opOR) THEN
-        AddCmd0(opORD)
-    END
+    AddCmd0(opORD)
 END _ord;
 
 
@@ -1016,55 +816,12 @@ END ProcImpCmp;
 
 
 PROCEDURE load* (size: INTEGER);
-VAR
-    last: COMMAND;
-
 BEGIN
-    last := codes.last;
     CASE size OF
-    |1:
-        IF last.opcode = opLADR THEN
-            last.opcode := opLLOAD8
-        ELSIF last.opcode = opVADR THEN
-            last.opcode := opVLOAD8
-        ELSIF last.opcode = opGADR THEN
-            last.opcode := opGLOAD8
-        ELSE
-            AddCmd0(opLOAD8)
-        END
-
-    |2:
-        IF last.opcode = opLADR THEN
-            last.opcode := opLLOAD16
-        ELSIF last.opcode = opVADR THEN
-            last.opcode := opVLOAD16
-        ELSIF last.opcode = opGADR THEN
-            last.opcode := opGLOAD16
-        ELSE
-            AddCmd0(opLOAD16)
-        END
-
-    |4:
-        IF last.opcode = opLADR THEN
-            last.opcode := opLLOAD32
-        ELSIF last.opcode = opVADR THEN
-            last.opcode := opVLOAD32
-        ELSIF last.opcode = opGADR THEN
-            last.opcode := opGLOAD32
-        ELSE
-            AddCmd0(opLOAD32)
-        END
-
-    |8:
-        IF last.opcode = opLADR THEN
-            last.opcode := opLLOAD64
-        ELSIF last.opcode = opVADR THEN
-            last.opcode := opVLOAD64
-        ELSIF last.opcode = opGADR THEN
-            last.opcode := opGLOAD64
-        ELSE
-            AddCmd0(opLOAD64)
-        END
+    |1: AddCmd0(opLOAD8)
+    |2: AddCmd0(opLOAD16)
+    |4: AddCmd0(opLOAD32)
+    |8: AddCmd0(opLOAD64)
     END
 END load;
 
@@ -1172,21 +929,9 @@ END drop;
 
 
 PROCEDURE _case* (a, b, L, R: INTEGER);
-VAR
-    cmd: COMMAND;
-
 BEGIN
-    IF a = b THEN
-        cmd := NewCmd();
-        cmd.opcode := opCASELR;
-        cmd.param1 := a;
-        cmd.param2 := L;
-        cmd.param3 := R;
-        insert(codes.last, cmd)
-    ELSE
-        AddCmd2(opCASEL, a, L);
-        AddCmd2(opCASER, b, R)
-    END
+    AddCmd2(opCASEL, a, L);
+    AddCmd2(opCASER, b, R)
 END _case;
 
 
@@ -1297,7 +1042,7 @@ BEGIN
     chunks := NIL;
     curChunk := NIL;
 
-    CPU := pCPU;
+    codes.cpu := pCPU;
 
     NEW(codes.begcall);
     codes.begcall.top := -1;
@@ -1311,10 +1056,10 @@ BEGIN
 
     (* Two nops open the stream and codes.last stops at the first of them, so
        the first command the front end adds lands between the two. *)
-    cmd := NewCmd(); cmd.opcode := opNOP; cmd.prev := NIL; cmd.next := NIL;
+    cmd := NewCmd(); cmd.opcode := opNOP; cmd.param2 := 0; cmd.prev := NIL; cmd.next := NIL;
     codes.commands := cmd;
     codes.last := cmd;
-    cmd := NewCmd(); cmd.opcode := opNOP; link(codes.last, cmd);
+    cmd := NewCmd(); cmd.opcode := opNOP; cmd.param2 := 0; link(codes.last, cmd);
 
     AddRec(0);
 

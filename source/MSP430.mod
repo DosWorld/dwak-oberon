@@ -98,7 +98,7 @@ TYPE
     NODE = POINTER TO NODEBODY;
 
     (* Every node used to be a block of its own on the heap. They are carved
-       out of chunks instead, the way IL carves its commands and X86 its own
+       out of chunks instead, the way IL carves its commands and I386 its own
        nodes: a chunk is a single block as far as the heap is concerned and
        holds SLOTS nodes, so the allocator has far fewer blocks to walk past
        and far fewer headers to write. *)
