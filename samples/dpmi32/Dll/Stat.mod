@@ -1,9 +1,9 @@
-﻿MODULE DllStatic;
+﻿MODULE Stat;
 
 IMPORT SYSTEM, Console, Out, API;
 
 CONST
-    DLLLIB = "DLLLIB.DLL";
+    DLLLIB = "MYLIB.DLL";
 
 TYPE
     Rec = POINTER TO RECORD v: INTEGER END;
@@ -68,4 +68,4 @@ BEGIN
     Out.String("DllStatic: EXE-allocated record dropped by the DLL"); Out.Ln;
 
     Out.String("DllStatic: done"); Out.Ln
-END DllStatic.
+END Stat.

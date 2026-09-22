@@ -1,4 +1,4 @@
-﻿MODULE DllLib;
+﻿MODULE MyLib;
 
 IMPORT SYSTEM, Out;
 
@@ -63,4 +63,4 @@ END DropInt;
 BEGIN
     calls := 0;
     Out.String("DllLib: attached"); Out.Ln
-END DllLib.
+END MyLib.
