@@ -2778,11 +2778,11 @@ BEGIN
 
     BIN.fixup(program);
     IF target = TARGETS.DPMI32LE THEN
-        LE.write(program, outname)
+        LE.write(program, outname, opt.stub)
     ELSIF target IN {TARGETS.DPMI32PE, TARGETS.DPMI32DLL} THEN
-        PE32.writeHX(program, outname, target = TARGETS.DPMI32DLL, FALSE, opt.PE32FileAlignment)
+        PE32.write(program, outname, opt.stub, TRUE, target = TARGETS.DPMI32DLL, FALSE, opt.PE32FileAlignment)
     ELSIF TARGETS.OS = TARGETS.osWIN32 THEN
-        PE32.write(program, outname, FALSE, target = TARGETS.Win32C, target = TARGETS.Win32DLL, FALSE, opt.PE32FileAlignment)
+        PE32.write(program, outname, opt.stub, target = TARGETS.Win32C, target = TARGETS.Win32DLL, FALSE, opt.PE32FileAlignment)
     ELSIF TARGETS.OS = TARGETS.osLINUX32 THEN
         ELF.write(program, outname, sofinit, target = TARGETS.Linux32SO, FALSE)
     END

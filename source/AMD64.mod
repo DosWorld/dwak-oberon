@@ -2439,7 +2439,7 @@ BEGIN
 
     BIN.fixup(prog);
     IF TARGETS.OS = TARGETS.osWIN64 THEN
-        PE32.write(prog, outname, FALSE, target = TARGETS.Win64C, target = TARGETS.Win64DLL, TRUE, options.PE32FileAlignment)
+        PE32.write(prog, outname, options.stub, target = TARGETS.Win64C, target = TARGETS.Win64DLL, TRUE, options.PE32FileAlignment)
     ELSIF TARGETS.OS = TARGETS.osLINUX64 THEN
         ELF.write(prog, outname, sofinit, target = TARGETS.Linux64SO, TRUE)
     ELSIF TARGETS.OS = TARGETS.osMACOS64 THEN

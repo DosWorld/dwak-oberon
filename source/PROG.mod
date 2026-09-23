@@ -76,7 +76,9 @@ TYPE
 
         version*, stack*, ram*, rom*, tab*, PE32FileAlignment*: INTEGER;
         pic*, lower*, uses*: BOOLEAN;
-        checking*: SET
+        checking*: SET;
+        stub*: PATHS.PATH  (* PE/LE DOS stub file: -stub override, else the
+                               default W32PE.EXE/D32PE.EXE/D32LE.EXE in lib *)
 
     END;
 

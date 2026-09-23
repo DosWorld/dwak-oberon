@@ -33,7 +33,7 @@ CONST
     DEF_REAL_64   = "REAL_64";
 
 
-PROCEDURE keys (VAR options: PROG.OPTIONS; VAR out, lib: PARS.PATH);
+PROCEDURE keys (VAR options: PROG.OPTIONS; VAR out, lib, stub: PARS.PATH);
 VAR
     param: PARS.PATH;
     i, j:  INTEGER;
@@ -64,6 +64,7 @@ BEGIN
     options.lower := TRUE;
     out := "";
     lib := "";
+    stub := "";
     checking := options.checking;
     _end := FALSE;
     i := 3;
@@ -99,6 +100,15 @@ BEGIN
                 DEC(i)
             ELSE
                 lib := param
+            END
+
+        ELSIF param = "-stub" THEN
+            INC(i);
+            UTILS.GetArg(i, param);
+            IF param[0] = "-" THEN
+                DEC(i)
+            ELSE
+                stub := param
             END
 
         ELSIF param = "-tab" THEN
@@ -213,6 +223,8 @@ VAR
     lib_path:   PARS.PATH;
     common_lib_path: PARS.PATH;
     lib_dir:    PARS.PATH;
+    lib_root:   PARS.PATH;
+    stub_arg:   PARS.PATH;
     modname:    PARS.PATH;
     outname:    PARS.PATH;
     param:      PARS.PATH;
@@ -278,6 +290,8 @@ BEGIN
         Out.StringLn("  -out <file name>      output");
         Out.StringLn("  -l <path>             set path to the lib directory");
         Out.StringLn("                        (default: lib next to the exe)");
+        Out.StringLn("  -stub <file>          set custom PE/LE DOS stub file");
+        Out.StringLn("                        (default: W32PE.EXE/D32PE.EXE/D32LE.EXE in lib)");
         Out.StringLn("  -stk <size>           set size of stack in Mbytes (Windows, Linux, HX-DOS, LE-DOS)");
         Out.StringLn("  -nochk <'ptibcwra'>   disable runtime checking (pointers, types, indexes,");
         Out.StringLn("                        BYTE, CHR, WCHR)");
@@ -331,7 +345,7 @@ BEGIN
         ERRORS.Error(206)
     END;
 
-    keys(options, outname, lib_dir);
+    keys(options, outname, lib_dir, stub_arg);
 
     IF lib_dir = "" THEN
         (* No -l.  lib_path was seeded with the directory argv[0] names, so
@@ -356,6 +370,29 @@ BEGIN
 
         COPY(lib_dir, lib_path);
         COPY(lib_dir, common_lib_path)
+    END;
+
+    (* lib_path is still the plain lib directory here, common to every
+       target; the PE/LE DOS stub files (W32PE.EXE, D32PE.EXE, D32LE.EXE)
+       live there, not under a target subdirectory. *)
+    lib_root := lib_path;
+
+    IF stub_arg # "" THEN
+        Strings.ReplaceChar(stub_arg, "\", UTILS.slash);
+        Strings.ReplaceChar(stub_arg, "/", UTILS.slash);
+        IF PATHS.isRelative(stub_arg) THEN
+            PATHS.RelPath(app_path, stub_arg, temp);
+            options.stub := temp
+        ELSE
+            options.stub := stub_arg
+        END
+    ELSE
+        options.stub := lib_root;
+        CASE target OF
+        |TARGETS.DPMI32PE: ASSERT(Strings.Append("D32PE.EXE", options.stub))
+        |TARGETS.DPMI32LE: ASSERT(Strings.Append("D32LE.EXE", options.stub))
+        ELSE                ASSERT(Strings.Append("W32PE.EXE", options.stub))
+        END
     END;
 
     ASSERT(Strings.Append(TARGETS.LibDir, lib_path));

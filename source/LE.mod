@@ -8,16 +8,11 @@
 *)
 MODULE LE;
 
-IMPORT BIN, CHL := CHUNKLISTS, WR := WRITER, ERRORS;
+IMPORT BIN, CHL := CHUNKLISTS, WR := WRITER, ERRORS, Files;
 
 CONST
     pageSize = 4096;
     headerSize = 0C4H;
-    stubSize = 400;
-
-VAR
-    stub: ARRAY stubSize OF BYTE;
-    n: INTEGER;
 
 PROCEDURE Byte (list: CHL.BYTELIST; x: INTEGER);
 BEGIN
@@ -60,7 +55,51 @@ BEGIN
     Dword(records, dest)
 END Fixup;
 
-PROCEDURE write* (program: BIN.PROGRAM; FileName: ARRAY OF CHAR);
+(* LoadStub reads the whole DOS stub file (the default D32LE.EXE, or a
+   -stub override) into a byte list, as-is, and patches the field at file
+   offset 3CH -- where the bundled 4gs.exe-derived stub kept its LE header
+   offset -- to point at the LE header written right after it. *)
+PROCEDURE LoadStub (StubPath: ARRAY OF CHAR): CHL.BYTELIST;
+CONST
+    BUFSIZE = 4096;
+VAR
+    f:      Files.File;
+    got, i: INTEGER;
+    buf:    ARRAY BUFSIZE OF BYTE;
+    list:   CHL.BYTELIST;
+    size:   INTEGER;
+
+BEGIN
+    IF ~Files.Reset(f, StubPath) THEN
+        ERRORS.FileNotFound(StubPath, "", "")
+    END;
+
+    list := CHL.CreateByteList();
+
+    REPEAT
+        got := Files.BlockRead(f, buf, BUFSIZE);
+        FOR i := 0 TO got - 1 DO
+            CHL.PushByte(list, buf[i])
+        END
+    UNTIL got < BUFSIZE;
+
+    Files.Close(f);
+
+    IF CHL.Length(list) < 40H THEN
+        ERRORS.Error(201)
+    END;
+
+    size := CHL.Length(list);
+    CHL.SetByte(list, 3CH, size MOD 256);
+    CHL.SetByte(list, 3DH, (size DIV 256) MOD 256);
+    CHL.SetByte(list, 3EH, (size DIV 10000H) MOD 256);
+    CHL.SetByte(list, 3FH, (size DIV 1000000H) MOD 256)
+
+    RETURN list
+END LoadStub;
+
+
+PROCEDURE write* (program: BIN.PROGRAM; FileName, StubPath: ARRAY OF CHAR);
 VAR
     codeSize, dataSize, codePages, dataPages, pages, bss, stackTop: INTEGER;
     mapOff, namesOff, entryOff, fixPageOff, fixRecOff, importsOff, dataOff: INTEGER;
@@ -68,7 +107,11 @@ VAR
     rel, crossing: BIN.RELOC;
     records, header: CHL.BYTELIST;
     fixPages: CHL.INTLIST;
+    stub: CHL.BYTELIST;
+    stubSize: INTEGER;
 BEGIN
+    stub := LoadStub(StubPath);
+    stubSize := CHL.Length(stub);
     IF program.imp_list.first # NIL THEN ERRORS.Error(209) END;
     codeSize := CHL.Length(program.code);
     dataSize := CHL.Length(program.data);
@@ -145,7 +188,8 @@ BEGIN
     BIN.put32le(header, 0ACH, program.stack);
 
     WR.Create(FileName);
-    WR.Write(stub, stubSize);
+    CHL.WriteToFile(stub);
+    CHL.Free(stub);
     CHL.WriteToFile(header);
     Object(codeSize, 10000H, 2005H, 1, codePages);
     Object(stackTop, 10000H + codePages * pageSize, 2003H, codePages + 1, dataPages);
@@ -172,23 +216,4 @@ BEGIN
     CHL.Free(header); CHL.Free(records); CHL.Free(fixPages)
 END write;
 
-BEGIN
-    (* 4g/4gs.exe, executable body unchanged. Its 32-byte MZ header is expanded
-       to 64 bytes to carry e_lfanew. Adjust only file size, header paragraphs,
-       relocation-table offset and e_lfanew; CS:IP and SS:SP stay unchanged. *)
-    n := 0;
-    BIN.InitArray(stub, n, "4D5A90010100000004005A015A01F0FFA01500008F01F0FF4000000000000000");
-    BIN.InitArray(stub, n, "0000000000000000000000000000000000000000000000000000000090010000");
-    BIN.InitArray(stub, n, "444F5334475750524F444F533332410D0A24444F53203338362B206E65656424");
-    BIN.InitArray(stub, n, "436D646C696E6520746F6F206C6F6E6724444F5358206E6F7420666F756E6424");
-    BIN.InitArray(stub, n, "4FB05CAE7401AA1E560E1FBD6401B105BE0001FFD541FFD5ACADFFD5BE0901FF");
-    BIN.InitArray(stub, n, "D55E1FC360F3A4B82E45ABB058AB91AA0E6A6C0E6A5C1E6850025089E3BA5003");
-    BIN.InitArray(stub, n, "B44BCD217204B44DEB1D83C40E61C3B4709C509D9C5B9DBA160120E7750F0E1F");
-    BIN.InitArray(stub, n, "B409CD21BA0F01CD21B44CCD21B82E30A31701CD21BA12013C0372E28E1E2C00");
-    BIN.InitArray(stub, n, "1EFC31F6AD4E85C075FA91ACADBF51025706ACAA84C075FA4F1FBE8000AD4E08");
-    BIN.InitArray(stub, n, "C17409B02038E07401AAF3A4B00DAA975F29F8BA20013D7E0077A34F48AA1FBF");
-    BIN.InitArray(stub, n, "5003E842FF31F656BF0001ADAF7504A67521AD3D34477501AD3C5075164E66AD");
-    BIN.InitArray(stub, n, "663D4154483D750BBF5003AC84C07514E80DFF5EAD4E84C075FA38E075C9BA31");
-    BIN.InitArray(stub, n, "01E95AFF3C3B7505E8F5FEEBDBAAEBDB");
-    ASSERT(n = stubSize)
 END LE.

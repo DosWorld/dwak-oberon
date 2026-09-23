@@ -95,10 +95,14 @@ The options you will actually reach for:
 |---|---|
 | `-out <file>` | Output file name (default: module name + target extension) |
 | `-l <path>` | Where the `lib` directory is |
-| `-stk <size>` | Stack size in megabytes |
+| `-stub <file>` | Custom PE/LE DOS stub file, in place of the target's default (`W32PE.EXE` for Windows EXE/DLL and `dpmi32dll`, `D32PE.EXE` for `dpmi32pe`, `D32LE.EXE` for `dpmi32le`, all found in `lib` otherwise) |
+| `-stk <size>` | Stack size in megabytes (Windows, Linux, HX-DOS, LE-DOS) |
+| `-fa <size>` | PE32 file alignment: `512` (default), `1024`, `2048` or `4096` |
+| `-ver <major.minor>` | Program version (LE-DOS) |
 | `-nochk <letters>` | Turn off run-time checks — pointers, types, indexes, `BYTE`, `CHR`, `WCHR` — by naming them in one word, e.g. `-nochk a` |
 | `-def <name>` | Define a conditional-compilation symbol (see below) |
 | `-ram` / `-rom <size>` | Memory sizes, for the microcontrollers |
+| `-tab <width>` | Tab width |
 | `-uses` | List the modules that were imported |
 | `-upper` / `-lower` | Whether keywords may be written in lower case (default: they may) |
 
@@ -144,22 +148,19 @@ The results land in `bin/`:
 
 | Binary | Runs on |
 |---|---|
-| `bin/w64comp.exe`, `bin/w32comp.exe` | Windows |
-| `bin/l64comp`, `bin/l32comp` | Linux |
-| `bin/m64comp` | macOS |
-| `bin/D32COMP.EXE` | DOS, under a DPMI extender (`bin/DPMILD32.EXE`, `bin/HDPMI32.EXE`) |
+| `bin/w64oc.exe`, `bin/w32oc.exe` | Windows |
+| `bin/l64oc`, `bin/l32oc` | Linux |
+| `bin/m64oc` | macOS |
+| `bin/D32OC.EXE` | DOS, under a DPMI extender |
 
-The bootstrap cross-compiles, so one `boot64.exe` builds all six. The `macos64`
-target first builds a fresh Windows intermediate compiler in `.build/`, then uses
-its current Mach-O writer to build `bin/m64comp`. This is necessary when the macOS
-runtime needs bindings that an older bootstrap writer does not emit. The generated
-Mach-O and its signature hashes are checked before replacing `bin/m64comp`.
-This target requires Python 3 as well as Wine (`PYTHON` and `WINE` can be overridden).
+The bootstrap cross-compiles, so one `boot64.exe` builds all six (`OC` can be
+overridden to use a different seed compiler; `OC_RUN` if it needs something
+other than Wine to run).
 
 On macOS, verify the complete native pipeline, including self-compilation, with:
 
 ```sh
-python3 tests/check_macos_compiler.py bin/m64comp --self-host
+python3 tests/check_macos_compiler.py bin/m64oc --self-host
 ```
 
 ## Repository layout

@@ -8,7 +8,7 @@
 
 MODULE PE32;
 
-IMPORT BIN, LISTS, UTILS, WR := WRITER, CHL := CHUNKLISTS, HXSTUB;
+IMPORT BIN, LISTS, UTILS, WR := WRITER, CHL := CHUNKLISTS, Files, ERRORS;
 
 
 CONST
@@ -155,8 +155,7 @@ VAR
     FileHeader:      IMAGE_FILE_HEADER;
     OptionalHeader:  IMAGE_OPTIONAL_HEADER;
 
-    msdos:           ARRAY 128 OF BYTE;
-    hxmsdos:         ARRAY 512 OF BYTE;
+    stub:            CHL.BYTELIST;
     SectionHeaders:  ARRAY 16 OF IMAGE_SECTION_HEADER;
     libcnt:          INTEGER;
     SizeOfWord:      INTEGER;
@@ -443,12 +442,55 @@ BEGIN
 END WriteFileHeader;
 
 
-PROCEDURE write* (program: BIN.PROGRAM; FileName: ARRAY OF CHAR; hx, console, dll, amd64: BOOLEAN; fa: INTEGER);
+(* LoadStub reads the whole DOS stub file (the default W32PE.EXE/D32PE.EXE/
+   D32LE.EXE, or a -stub override) into a byte list, as-is. PatchStubHeader
+   below then overwrites its e_lfanew field (offset 3CH) to point at the PE
+   header, which is written right after the stub. *)
+PROCEDURE LoadStub (StubPath: ARRAY OF CHAR): CHL.BYTELIST;
+CONST
+    BUFSIZE = 4096;
+VAR
+    f:      Files.File;
+    got, i: INTEGER;
+    buf:    ARRAY BUFSIZE OF BYTE;
+    list:   CHL.BYTELIST;
+
+BEGIN
+    IF ~Files.Reset(f, StubPath) THEN
+        ERRORS.FileNotFound(StubPath, "", "")
+    END;
+
+    list := CHL.CreateByteList();
+
+    REPEAT
+        got := Files.BlockRead(f, buf, BUFSIZE);
+        FOR i := 0 TO got - 1 DO
+            CHL.PushByte(list, buf[i])
+        END
+    UNTIL got < BUFSIZE;
+
+    Files.Close(f);
+
+    IF CHL.Length(list) < 40H THEN
+        ERRORS.Error(201)
+    END
+
+    RETURN list
+END LoadStub;
+
+
+PROCEDURE PatchStubHeader (list: CHL.BYTELIST; HeaderOffset: INTEGER);
+BEGIN
+    CHL.SetByte(list, 3CH, HeaderOffset MOD 256);
+    CHL.SetByte(list, 3DH, (HeaderOffset DIV 256) MOD 256);
+    CHL.SetByte(list, 3EH, (HeaderOffset DIV 10000H) MOD 256);
+    CHL.SetByte(list, 3FH, (HeaderOffset DIV 1000000H) MOD 256)
+END PatchStubHeader;
+
+
+PROCEDURE write* (program: BIN.PROGRAM; FileName, StubPath: ARRAY OF CHAR; console, dll, amd64: BOOLEAN; fa: INTEGER);
 VAR
     i, n, temp: INTEGER;
-    hxstub: BOOLEAN;    (* an HX-DOS module started from the DOS command line, i.e. one
-                           that needs the DPMIST32 stub. A DLL is loaded, never
-                           started, so it gets the standard DOS stub. *)
     exp: BOOLEAN;   (* the module carries an export directory. Every DLL does; an
                        EXE does too whenever it exported something, which is how
                        the HX-DOS runtime lets a DLL it loads reach the heap. *)
@@ -567,7 +609,7 @@ VAR
 
 
 BEGIN
-    hxstub := hx & ~dll;
+    stub := LoadStub(StubPath);
     exp := dll OR (LISTS.count(program.exp_list) > 0);
 
     IF (fa = 512) OR (fa = 1024) OR (fa = 2048) OR (fa = 4096) THEN
@@ -627,11 +669,7 @@ BEGIN
     OptionalHeader.MinorSubsystemVersion        :=  0X;
     OptionalHeader.Win32VersionValue            :=  0H;
     OptionalHeader.SizeOfImage                  :=  SectionAlignment;
-    IF hxstub THEN
-        OptionalHeader.SizeOfHeaders := WR.align(LEN(hxmsdos) + 4 + 20 + ORD(FileHeader.SizeOfOptionalHeader) + 6 * 40, FileAlignment)
-    ELSE
-        OptionalHeader.SizeOfHeaders := MAX(FileAlignment, 1024)
-    END;
+    OptionalHeader.SizeOfHeaders := WR.align(CHL.Length(stub) + 4 + 20 + ORD(FileHeader.SizeOfOptionalHeader) + 6 * 40, FileAlignment);
     OptionalHeader.CheckSum                     :=  0;
     OptionalHeader.Subsystem                    :=  WCHR((2 + ORD(console)) * ORD(~dll));
     OptionalHeader.DllCharacteristics           :=  0040X;
@@ -714,29 +752,12 @@ BEGIN
         INC(OptionalHeader.SizeOfImage, WR.align(SectionHeaders[i].VirtualSize, SectionAlignment))
     END;
 
-    IF hxstub THEN
-        FOR i := 0 TO LEN(hxmsdos) - 1 DO
-            hxmsdos[i] := HXSTUB.DPMIST32[i]
-        END;
-        hxmsdos[3CH] := 0;      (* e_lfanew = 512 (0x200) *)
-        hxmsdos[3DH] := 2;
-        hxmsdos[3EH] := 0;
-        hxmsdos[3FH] := 0
-    ELSE
-        n := 0;
-        BIN.InitArray(msdos, n, "4D5A80000100000004001000FFFF000040010000000000004000000000000000");
-        BIN.InitArray(msdos, n, "0000000000000000000000000000000000000000000000000000000080000000");
-        BIN.InitArray(msdos, n, "0E1FBA0E00B409CD21B8014CCD21546869732070726F6772616D2063616E6E6F");
-        BIN.InitArray(msdos, n, "742062652072756E20696E20444F53206D6F64652E0D0A240000000000000000")
-    END;
+    PatchStubHeader(stub, CHL.Length(stub));
 
     WR.Create(FileName);
 
-    IF hxstub THEN
-        WR.Write(hxmsdos, LEN(hxmsdos))
-    ELSE
-        WR.Write(msdos, LEN(msdos))
-    END;
+    CHL.WriteToFile(stub);
+    CHL.Free(stub);
 
     WR.Write(Signature, LEN(Signature));
     WriteFileHeader(FileHeader);
@@ -844,14 +865,6 @@ BEGIN
 
     WR.Close
 END write;
-
-
-(* The HX-DOS output: a console module (a DLL never has one), the DPMIST32
-   stub unless it is a DLL, and the i386 image the extender runs. *)
-PROCEDURE writeHX* (program: BIN.PROGRAM; FileName: ARRAY OF CHAR; dll, amd64: BOOLEAN; fa: INTEGER);
-BEGIN
-    write(program, FileName, TRUE, TRUE, dll, amd64, fa)
-END writeHX;
 
 
 END PE32.
