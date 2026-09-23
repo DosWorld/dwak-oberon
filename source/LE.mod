@@ -2,7 +2,7 @@
     BSD 2-Clause License
     Copyright (c) 2026-, DosWorld
 
-    DOS/4GW Linear Executable (LE, not LX). See doc/LE.TXT.
+    OS/2 Linear Executable (LE). See doc/LE.TXT.
     Object 1: code. Object 2: initialized data, zero-filled BSS and stack.
     All absolute addresses have loader fixups; no preferred-address shortcut.
 *)
