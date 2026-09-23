@@ -1,4 +1,4 @@
-# DWAK Oberon-32
+# DWAK Oberon
 
 **A self-hosting Oberon-07 compiler for 18 targets — one repository, no external toolchain.**
 
@@ -8,7 +8,7 @@ ROM. Everything is here: the sources, the run-time library for every target, the
 samples, and a prebuilt bootstrap binary that starts the chain off. There is no C
 compiler in the loop, nothing to install, nothing to configure.
 
-Clone the repository, and you have a working Oberon system.
+Clone the repository, and you have a working Oberon compiler.
 
 | | |
 |---|---|
