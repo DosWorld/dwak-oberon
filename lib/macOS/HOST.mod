@@ -19,19 +19,6 @@ CONST
     maxint* = ROR(-2, 1);
     minint* = ROR(1, 1);
 
-    SYS_exit    = 2000001H;
-    SYS_read    = 2000003H;
-    SYS_write   = 2000004H;
-    SYS_open    = 2000005H;
-    SYS_close   = 2000006H;
-    SYS_chmod   = 200000FH;
-    SYS_unlink  = 200000AH;
-    SYS_fcntl   = 200005CH;
-    SYS_lseek   = 20000C7H;
-    SYS_gettimeofday = 2000074H;
-
-    F_GETPATH = 50;
-
     O_RDONLY = 0; O_WRONLY = 1;
     O_CREAT  = 0200H; O_TRUNC = 0400H;
 
@@ -68,35 +55,26 @@ BEGIN
             INC(ptr)
         UNTIL (c = 0X) OR (i = len)
     END;
-    s[i] := 0X
+    IF LEN(s) > 0 THEN s[i] := 0X END
 END GetArg;
 
 
-(* No getcwd syscall exists on Darwin - libc's own getcwd(3) is built the
-   same way: open "." and ask fcntl for the fd's full path. *)
+(* libc handles the current directory; reserve space for the API's trailing
+   slash. An error or insufficient buffer returns an empty path, never "/". *)
 PROCEDURE GetCurrentDirectory* (VAR path: ARRAY OF CHAR);
-VAR
-    fd, n, res, closeRes: INTEGER;
-    buf: ARRAY MAXPATHLEN OF CHAR;
-
+VAR n, result: INTEGER;
 BEGIN
-    fd := API.syscall(SYS_open, SYSTEM.SADR("."), O_RDONLY, 0, 0, 0, 0);
-    IF fd >= 0 THEN
-        res := API.syscall(SYS_fcntl, fd, F_GETPATH, SYSTEM.ADR(buf[0]), 0, 0, 0);
-        closeRes := API.syscall(SYS_close, fd, 0, 0, 0, 0, 0);
-        IF res >= 0 THEN
-            COPY(buf, path)
-        ELSE
-            path[0] := 0X
+    IF LEN(path) > 0 THEN
+        path[0] := 0X;
+        IF LEN(path) > 1 THEN
+            result := API.getcwd(SYSTEM.ADR(path[0]), LEN(path) - 1);
+            IF result # 0 THEN
+                n := LENGTH(path);
+                IF (n > 0) & (path[n - 1] # slash) THEN
+                    path[n] := slash; path[n + 1] := 0X
+                END
+            ELSE path[0] := 0X END
         END
-    ELSE
-        path[0] := 0X
-    END;
-
-    n := LENGTH(path);
-    IF (n = 0) OR (path[n - 1] # slash) THEN
-        path[n] := slash;
-        path[n + 1] := 0X
     END
 END GetCurrentDirectory;
 
@@ -106,9 +84,10 @@ VAR
     res: INTEGER;
 
 BEGIN
-    res := API.syscall(SYS_read, F, SYSTEM.ADR(Buffer[0]), bytes, 0, 0, 0);
-    IF res <= 0 THEN
-        res := -1
+    res := 0;
+    IF (bytes > 0) & (LEN(Buffer) > 0) THEN
+        res := API.Read(F, SYSTEM.ADR(Buffer[0]), MIN(bytes, LEN(Buffer)));
+        IF res <= 0 THEN res := -1 END
     END
 
     RETURN res
@@ -120,9 +99,10 @@ VAR
     res: INTEGER;
 
 BEGIN
-    res := API.syscall(SYS_write, F, SYSTEM.ADR(Buffer[0]), bytes, 0, 0, 0);
-    IF res <= 0 THEN
-        res := -1
+    res := 0;
+    IF (bytes > 0) & (LEN(Buffer) > 0) THEN
+        res := API.Write(F, SYSTEM.ADR(Buffer[0]), MIN(bytes, LEN(Buffer)));
+        IF res <= 0 THEN res := -1 END
     END
 
     RETURN res
@@ -130,7 +110,7 @@ END FileWrite;
 
 
 PROCEDURE FileCreate* (FName: ARRAY OF CHAR): INTEGER;
-    RETURN API.syscall(SYS_open, SYSTEM.ADR(FName[0]), O_WRONLY + O_CREAT + O_TRUNC, 01B6H, 0, 0, 0) (* 0666 *)
+    RETURN API.Open(SYSTEM.ADR(FName[0]), O_WRONLY + O_CREAT + O_TRUNC, 01B6H) (* 0666 *)
 END FileCreate;
 
 
@@ -138,20 +118,20 @@ PROCEDURE FileClose* (File: INTEGER);
 VAR
     res: INTEGER;
 BEGIN
-    res := API.syscall(SYS_close, File, 0, 0, 0, 0, 0)
+    res := API.Close(File)
 END FileClose;
 
 
 PROCEDURE chmod* (FName: ARRAY OF CHAR);
 VAR res: INTEGER;
 BEGIN
-    res := API.syscall(SYS_chmod, SYSTEM.ADR(FName[0]), 01EDH, 0, 0, 0, 0); (* 0755 *)
+    res := API.Chmod(SYSTEM.ADR(FName[0]), 01EDH); (* 0755 *)
     ASSERT(res = 0)
 END chmod;
 
 
 PROCEDURE FileOpen* (FName: ARRAY OF CHAR): INTEGER;
-    RETURN API.syscall(SYS_open, SYSTEM.ADR(FName[0]), O_RDONLY, 0, 0, 0, 0)
+    RETURN API.Open(SYSTEM.ADR(FName[0]), O_RDONLY, 0)
 END FileOpen;
 
 
@@ -160,23 +140,16 @@ VAR
     res: INTEGER;
 
 BEGIN
-    res := API.syscall(SYS_write, 1, SYSTEM.ADR(c), 1, 0, 0, 0)
+    res := API.Write(1, SYSTEM.ADR(c), 1)
 END OutChar;
 
 
 PROCEDURE GetTickCount* (): INTEGER;
-VAR
-    tv: ARRAY 2 OF INTEGER; (* tv_sec: 8 bytes, tv_usec: 4 bytes + 4 padding *)
-    res: INTEGER;
-
+VAR ts: ARRAY 2 OF INTEGER; res: INTEGER;
 BEGIN
-    res := API.syscall(SYS_gettimeofday, SYSTEM.ADR(tv[0]), 0, 0, 0, 0, 0);
-    IF res >= 0 THEN
-        res := tv[0] * 100 + (tv[1] MOD 100000000H) DIV 10000
-    ELSE
-        res := 0
-    END
-
+    res := API.ClockGetTime(6, SYSTEM.ADR(ts[0])); (* CLOCK_MONOTONIC *)
+    IF res = 0 THEN res := ts[0] * 100 + ts[1] DIV 10000000
+    ELSE res := 0 END
     RETURN res
 END GetTickCount;
 
@@ -192,7 +165,7 @@ VAR
     res: INTEGER;
 
 BEGIN
-    res := API.syscall(SYS_gettimeofday, SYSTEM.ADR(tv[0]), 0, 0, 0, 0, 0);
+    res := API.GetTimeOfDay(SYSTEM.ADR(tv[0]));
     IF res < 0 THEN
         tv[0] := 0
     END

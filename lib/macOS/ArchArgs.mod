@@ -21,38 +21,37 @@ VAR
     argc*, envc*: INTEGER;
 
 
-PROCEDURE GetArg* (n: INTEGER; VAR s: ARRAY OF CHAR);
-VAR
-    i, len, ptr: INTEGER;
-    c: CHAR;
-
+PROCEDURE CopyString(ptr: INTEGER; VAR s: ARRAY OF CHAR);
+VAR i: INTEGER; c: CHAR;
 BEGIN
-    i := 0;
-    len := LEN(s) - 1;
-    IF (0 <= n) & (n <= argc + envc) & (n # argc) & (len > 0) THEN
-        IF n < argc THEN
-            SYSTEM.GET(API.MainArgv + n * SYSTEM.SIZE(INTEGER), ptr)
-        ELSE
-            SYSTEM.GET(API.MainEnvp + (n - argc - 1) * SYSTEM.SIZE(INTEGER), ptr)
+    IF LEN(s) > 0 THEN
+        i := 0; c := 01X;
+        WHILE (ptr # 0) & (i < LEN(s) - 1) & (c # 0X) DO
+            SYSTEM.GET(ptr + i, c); s[i] := c;
+            IF c # 0X THEN INC(i) END
         END;
-        REPEAT
-            SYSTEM.GET(ptr, c);
-            s[i] := c;
-            INC(i);
-            INC(ptr)
-        UNTIL (c = 0X) OR (i = len)
+        s[i] := 0X
+    END
+END CopyString;
+
+PROCEDURE GetArg* (n: INTEGER; VAR s: ARRAY OF CHAR);
+VAR ptr: INTEGER;
+BEGIN
+    ptr := 0;
+    IF (0 <= n) & (n < argc) THEN
+        SYSTEM.GET(API.MainArgv + n * SYSTEM.SIZE(INTEGER), ptr)
     END;
-    s[i] := 0X
+    CopyString(ptr, s)
 END GetArg;
 
-
 PROCEDURE GetEnv* (n: INTEGER; VAR s: ARRAY OF CHAR);
+VAR ptr: INTEGER;
 BEGIN
+    ptr := 0;
     IF (0 <= n) & (n < envc) THEN
-        GetArg(n + argc + 1, s)
-    ELSE
-        s[0] := 0X
-    END
+        SYSTEM.GET(API.MainEnvp + n * SYSTEM.SIZE(INTEGER), ptr)
+    END;
+    CopyString(ptr, s)
 END GetEnv;
 
 

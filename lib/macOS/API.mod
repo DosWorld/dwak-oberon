@@ -7,13 +7,10 @@
 
 MODULE API;
 
-(* The runtime never calls into libSystem - it only names it (MACHO.mod's
-   empty chained-fixups trick), because dyld refuses a binary that names no
-   dependency at all. Everything real goes through raw BSD/XNU syscalls:
-   the syscall trampoline below OR's in the 0x2000000 Unix class bit and
-   turns the carry-flag error convention into a Linux-style negative
-   return, so callers can use the same "< 0 is an error" idiom the rest of
-   this compiler's runtimes already use. *)
+(* libSystem bootstrap pointers are bound by MACHO.mod. Other entry points
+   are resolved through dlsym during init. The [systemv] convention denotes the
+   x86-64 System V ABI used by Darwin C functions as well. Raw syscalls remain
+   only for early error reporting and the pre-initialization exit fallback. *)
 
 IMPORT SYSTEM;
 
@@ -53,7 +50,26 @@ VAR
 
     MainArgc*, MainArgv*, MainEnvp*: INTEGER;
 
-    heapTop, heapEnd: INTEGER;
+    libSystem*: INTEGER;
+    dlopen*: PROCEDURE [systemv] (name, flags: INTEGER): INTEGER;
+    dlsym*: PROCEDURE [systemv] (handle, name: INTEGER): INTEGER;
+    dlerror*: PROCEDURE [systemv] (): INTEGER;
+    closeLibrary: PROCEDURE [systemv] (handle: INTEGER): INTEGER;
+    malloc: PROCEDURE [systemv] (size: INTEGER): INTEGER;
+    free: PROCEDURE [systemv] (p: INTEGER);
+    cExit: PROCEDURE [systemv] (code: INTEGER);
+    errnoAddress: PROCEDURE [systemv] (): INTEGER;
+    cOpen: PROCEDURE [systemv] (path, flags, mode: INTEGER): INTEGER;
+    cClose: PROCEDURE [systemv] (fd: INTEGER): INTEGER;
+    cRead, cWrite: PROCEDURE [systemv] (fd, buf, count: INTEGER): INTEGER;
+    cSeek: PROCEDURE [systemv] (fd, offset, origin: INTEGER): INTEGER;
+    cStat, cRename, cUtimes: PROCEDURE [systemv] (a, b: INTEGER): INTEGER;
+    cUnlink, cRmdir: PROCEDURE [systemv] (path: INTEGER): INTEGER;
+    cMkdir, cChmod: PROCEDURE [systemv] (path, mode: INTEGER): INTEGER;
+    cTruncate: PROCEDURE [systemv] (fd, size: INTEGER): INTEGER;
+    getcwd*: PROCEDURE [systemv] (buf, size: INTEGER): INTEGER;
+    cGetTimeOfDay: PROCEDURE [systemv] (tv, tz: INTEGER): INTEGER;
+    cClockGetTime: PROCEDURE [systemv] (clock, ts: INTEGER): INTEGER;
 
     fini: SOFINI;
     trap*: Trap;
@@ -91,8 +107,8 @@ PROCEDURE DebugMsg* (lpText, lpCaption: INTEGER);
         n, r: INTEGER;
         c: CHAR;
     BEGIN
-        n := 0;
-        SYSTEM.GET(p + n, c);
+        n := 0; c := 0X;
+        IF p # 0 THEN SYSTEM.GET(p + n, c) END;
         WHILE c # 0X DO
             INC(n);
             SYSTEM.GET(p + n, c)
@@ -106,82 +122,116 @@ BEGIN
 END DebugMsg;
 
 
-(* A bump allocator over anonymous pages: the runtime never frees memory
-   back to the kernel (matching every other target here, whose _DISPOSE is
-   a no-op or a pooled free list at best), so mmap is only ever asked to
-   grow the arena. *)
-PROCEDURE grow (need: INTEGER): BOOLEAN;
-CONST
-    CHUNK = 4 * 1024 * 1024;
-VAR
-    size, p: INTEGER;
-    ok: BOOLEAN;
-
+(* C int is 32 bits; INTEGER is 64. C callees need not sign-extend EAX. *)
+PROCEDURE IntResult(r: INTEGER): INTEGER;
 BEGIN
-    size := need;
-    IF size < CHUNK THEN
-        size := CHUNK
-    END;
-    IF size MOD 1000H # 0 THEN
-        INC(size, 1000H - size MOD 1000H)
-    END;
+    r := r MOD 100000000H;
+    IF r >= 80000000H THEN DEC(r, 100000000H) END
+    RETURN r
+END IntResult;
 
-    p := syscall(SYS_mmap, 0, size, PROT_READ + PROT_WRITE, MAP_PRIVATE + MAP_ANON, -1, 0);
-    ok := p >= 0;
-    IF ok THEN
-        heapTop := p;
-        heapEnd := p + size
-    END
+PROCEDURE Error*(): INTEGER;
+VAR p, e: INTEGER;
+BEGIN
+    p := errnoAddress(); e := 0; SYSTEM.GET32(p, e)
+    RETURN e
+END Error;
 
-    RETURN ok
-END grow;
+PROCEDURE dlclose*(handle: INTEGER): INTEGER;
+BEGIN RETURN IntResult(closeLibrary(handle)) END dlclose;
 
+PROCEDURE Open*(path, flags, mode: INTEGER): INTEGER;
+BEGIN RETURN IntResult(cOpen(path, flags, mode)) END Open;
+
+PROCEDURE Close*(fd: INTEGER): INTEGER;
+BEGIN RETURN IntResult(cClose(fd)) END Close;
+
+PROCEDURE Read*(fd, buf, count: INTEGER): INTEGER;
+VAR r: INTEGER;
+BEGIN
+    REPEAT r := cRead(fd, buf, count) UNTIL (r # -1) OR (Error() # 4)
+    RETURN r
+END Read;
+
+PROCEDURE Write*(fd, buf, count: INTEGER): INTEGER;
+VAR r: INTEGER;
+BEGIN
+    REPEAT r := cWrite(fd, buf, count) UNTIL (r # -1) OR (Error() # 4)
+    RETURN r
+END Write;
+
+PROCEDURE Seek*(fd, offset, origin: INTEGER): INTEGER;
+BEGIN RETURN cSeek(fd, offset, origin) END Seek;
+
+PROCEDURE Stat*(path, buf: INTEGER): INTEGER;
+BEGIN RETURN IntResult(cStat(path, buf)) END Stat;
+
+PROCEDURE Rename*(old, new: INTEGER): INTEGER;
+BEGIN RETURN IntResult(cRename(old, new)) END Rename;
+
+PROCEDURE Unlink*(path: INTEGER): INTEGER;
+BEGIN RETURN IntResult(cUnlink(path)) END Unlink;
+
+PROCEDURE Rmdir*(path: INTEGER): INTEGER;
+BEGIN RETURN IntResult(cRmdir(path)) END Rmdir;
+
+PROCEDURE Mkdir*(path, mode: INTEGER): INTEGER;
+BEGIN RETURN IntResult(cMkdir(path, mode)) END Mkdir;
+
+PROCEDURE Chmod*(path, mode: INTEGER): INTEGER;
+BEGIN RETURN IntResult(cChmod(path, mode)) END Chmod;
+
+PROCEDURE Truncate*(fd, size: INTEGER): INTEGER;
+BEGIN RETURN IntResult(cTruncate(fd, size)) END Truncate;
+
+PROCEDURE Utimes*(path, tv: INTEGER): INTEGER;
+BEGIN RETURN IntResult(cUtimes(path, tv)) END Utimes;
+
+PROCEDURE GetTimeOfDay*(tv: INTEGER): INTEGER;
+BEGIN RETURN IntResult(cGetTimeOfDay(tv, 0)) END GetTimeOfDay;
+
+PROCEDURE ClockGetTime*(clock, ts: INTEGER): INTEGER;
+BEGIN RETURN IntResult(cClockGetTime(clock, ts)) END ClockGetTime;
 
 PROCEDURE _NEW* (size: INTEGER): INTEGER;
-VAR
-    res, ptr, words, need: INTEGER;
-    ok: BOOLEAN;
-
+VAR res, pos, stop: INTEGER;
 BEGIN
-    need := size;
-    IF need MOD 8 # 0 THEN
-        INC(need, 8 - need MOD 8)
-    END;
-
-    IF heapTop + need > heapEnd THEN
-        ok := grow(need)
-    ELSE
-        ok := TRUE
-    END;
-
-    IF ok THEN
-        res := heapTop;
-        INC(heapTop, need);
-
-        ptr := res;
-        words := size DIV SYSTEM.SIZE(INTEGER);
-        WHILE words > 0 DO
-            SYSTEM.PUT(ptr, 0);
-            INC(ptr, SYSTEM.SIZE(INTEGER));
-            DEC(words)
+    res := 0;
+    IF size > 0 THEN
+        res := malloc(size);
+        IF res # 0 THEN
+            pos := res; stop := res + size;
+            WHILE pos <= stop - 8 DO SYSTEM.PUT(pos, 0); INC(pos, 8) END;
+            WHILE pos < stop DO SYSTEM.PUT8(pos, 0); INC(pos) END
         END
-    ELSE
-        res := 0
     END
-
     RETURN res
 END _NEW;
 
-
 PROCEDURE _DISPOSE* (p: INTEGER): INTEGER;
+BEGIN
+    free(p)
     RETURN 0
 END _DISPOSE;
+
+PROCEDURE GetSym(name: ARRAY OF CHAR; address: INTEGER);
+VAR p: INTEGER;
+BEGIN
+    p := dlsym(libSystem, SYSTEM.ADR(name[0]));
+    IF p = 0 THEN
+        (* RTL's diagnostic metadata is not initialized yet. *)
+        DebugMsg(SYSTEM.ADR(name[0]), SYSTEM.SADR("missing libSystem symbol: "));
+        p := syscall(SYS_exit, 1, 0, 0, 0, 0, 0)
+    END;
+    SYSTEM.PUT(address, p)
+END GetSym;
 
 
 PROCEDURE exit* (code: INTEGER);
 VAR
     res: INTEGER;
 BEGIN
+    IF cExit # NIL THEN cExit(code) END;
     res := syscall(SYS_exit, code, 0, 0, 0, 0, 0)
 END exit;
 
@@ -193,6 +243,7 @@ END exit_thread;
 
 
 PROCEDURE init* (sp, code: INTEGER);
+VAR image, cmd, count, kind, size, name, off, bytes, boot, magic: INTEGER;
 BEGIN
     fini := NIL;
     trap := NIL;
@@ -200,8 +251,52 @@ BEGIN
     SYSTEM.GET(sp, MainArgc);
     SYSTEM.GET(sp + 8, MainArgv);
     SYSTEM.GET(sp + 16, MainEnvp);
-    heapTop := 0;
-    heapEnd := 0
+    (* MACHO's code begins after 760 bytes of header/load commands. Locate
+       __DATA and read its last two pointers, already bound by dyld. Use
+       file offsets relative to the actual image base, so ASLR is supported. *)
+    image := code - 760; SYSTEM.GET32(image, magic); ASSERT(magic = 0FEEDFACFH);
+    SYSTEM.GET32(image + 16, count); cmd := image + 32; boot := 0;
+    WHILE count > 0 DO
+        SYSTEM.GET32(cmd, kind); SYSTEM.GET32(cmd + 4, size);
+        IF kind = 19H THEN
+            SYSTEM.GET32(cmd + 8, name);
+            IF name = 41445F5FH THEN (* __DA, followed by TA *)
+                name := 0; SYSTEM.GET16(cmd + 12, name);
+                IF name = 4154H THEN
+                    SYSTEM.GET(cmd + 40, off); SYSTEM.GET(cmd + 48, bytes);
+                    boot := image + off + bytes - 16
+                END
+            END
+        END;
+        INC(cmd, size); DEC(count)
+    END;
+    ASSERT(boot # 0);
+    SYSTEM.GET(boot, dlopen); SYSTEM.GET(boot + 8, dlsym);
+    ASSERT((dlopen # NIL) & (dlsym # NIL));
+    libSystem := dlopen(SYSTEM.SADR("/usr/lib/libSystem.B.dylib"), 2); (* RTLD_NOW *)
+    ASSERT(libSystem # 0);
+    GetSym("malloc", SYSTEM.ADR(malloc));
+    GetSym("free", SYSTEM.ADR(free));
+    GetSym("exit", SYSTEM.ADR(cExit));
+    GetSym("dlclose", SYSTEM.ADR(closeLibrary));
+    GetSym("dlerror", SYSTEM.ADR(dlerror));
+    GetSym("__error", SYSTEM.ADR(errnoAddress));
+    GetSym("open", SYSTEM.ADR(cOpen));
+    GetSym("close", SYSTEM.ADR(cClose));
+    GetSym("read", SYSTEM.ADR(cRead));
+    GetSym("write", SYSTEM.ADR(cWrite));
+    GetSym("lseek", SYSTEM.ADR(cSeek));
+    GetSym("stat$INODE64", SYSTEM.ADR(cStat));
+    GetSym("rename", SYSTEM.ADR(cRename));
+    GetSym("unlink", SYSTEM.ADR(cUnlink));
+    GetSym("rmdir", SYSTEM.ADR(cRmdir));
+    GetSym("mkdir", SYSTEM.ADR(cMkdir));
+    GetSym("chmod", SYSTEM.ADR(cChmod));
+    GetSym("ftruncate", SYSTEM.ADR(cTruncate));
+    GetSym("utimes", SYSTEM.ADR(cUtimes));
+    GetSym("getcwd", SYSTEM.ADR(getcwd));
+    GetSym("gettimeofday", SYSTEM.ADR(cGetTimeOfDay));
+    GetSym("clock_gettime", SYSTEM.ADR(cClockGetTime))
 END init;
 
 

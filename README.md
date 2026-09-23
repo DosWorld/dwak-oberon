@@ -149,9 +149,18 @@ The results land in `bin/`:
 | `bin/m64comp` | macOS |
 | `bin/D32COMP.EXE` | DOS, under a DPMI extender (`bin/DPMILD32.EXE`, `bin/HDPMI32.EXE`) |
 
-The bootstrap cross-compiles, so one `boot64.exe` builds all six. Since the compiler
-compiles itself, the whole thing is one long fixpoint: `source/` → a compiler → the
-same compiler → the same binary, byte for byte.
+The bootstrap cross-compiles, so one `boot64.exe` builds all six. The `macos64`
+target first builds a fresh Windows intermediate compiler in `.build/`, then uses
+its current Mach-O writer to build `bin/m64comp`. This is necessary when the macOS
+runtime needs bindings that an older bootstrap writer does not emit. The generated
+Mach-O and its signature hashes are checked before replacing `bin/m64comp`.
+This target requires Python 3 as well as Wine (`PYTHON` and `WINE` can be overridden).
+
+On macOS, verify the complete native pipeline, including self-compilation, with:
+
+```sh
+python3 tests/check_macos_compiler.py bin/m64comp --self-host
+```
 
 ## Repository layout
 

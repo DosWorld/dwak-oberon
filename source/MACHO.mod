@@ -10,8 +10,8 @@ MODULE MACHO;
 (* A minimal x86_64 Mach-O executable for macOS: dyld as the loader,
    /usr/lib/libSystem.B.dylib named as a dependency (the kernel refuses a
    static executable and dyld refuses one that names no libSystem), an
-   empty chained-fixups table (nothing is actually imported - the runtime
-   makes raw BSD syscalls, see lib/macOS/API.mod), and an ad-hoc
+   chained-fixups table binding _dlopen/_dlsym for runtime symbol lookup,
+   and an ad-hoc
    LC_CODE_SIGNATURE so Gatekeeper/AMFI accept it.
 
    Three segments: __TEXT holds the header, the load commands and the
@@ -153,7 +153,7 @@ BEGIN
 END Grow;
 
 
-(* A 32-bit segment load command, with room left for NSECTS 80-byte
+(* A 64-bit segment load command, with room left for NSECTS 80-byte
    section headers right after it (written separately by the caller). *)
 PROCEDURE Segment64 (img: CHL.BYTELIST; at: INTEGER; name: ARRAY OF CHAR;
                       vmaddr, vmsize, fileoff, filesize, prot, nsects: INTEGER);
@@ -226,6 +226,7 @@ VAR
     codelen, datalen, bsslen: INTEGER;
     dataAt, dataoff, textsize, datasize, linkedit: INTEGER;
     fixups, trie, starts, symoff, stroff, sigoff: INTEGER;
+    fixsize, pagecount, importoff, symboloff, boot: INTEGER;
     idlen, nslots, hashoff, cdlen, siglen, total: INTEGER;
     cd: INTEGER;
 
@@ -236,6 +237,9 @@ VAR
     Address: PE32.VIRTUAL_ADDR;
 
 BEGIN
+    (* Arbitrary libraries are loaded by the runtime through dlopen/dlsym.
+       Do not silently emit broken code for an unsupported static import. *)
+    ASSERT(program.imp_list.first = NIL);
     codelen := CHL.Length(program.code);
     datalen := CHL.Length(program.data);
     bsslen  := program.bss;
@@ -244,19 +248,27 @@ BEGIN
     dataoff  := CODEOFF + dataAt;
     textsize := dataoff;
 
-    datasize := RoundUp(datalen + bsslen, SEGALIGN);
+    (* The last 16 bytes of __DATA are runtime bootstrap pointers. Keep
+       them after BSS so every existing data relocation remains unchanged. *)
+    datasize := RoundUp(datalen + bsslen + 16, SEGALIGN);
     IF datasize = 0 THEN
         datasize := SEGALIGN
     END;
 
     linkedit := dataoff + datasize;
 
+    boot := linkedit - 16;
+    pagecount := datasize DIV PAGESIZE;
+    ASSERT(pagecount <= 65535); (* dyld's page_count is uint16_t *)
+    importoff := RoundUp(52 + 22 + 2 * pagecount, 4);
+    symboloff := importoff + 8; (* two DYLD_CHAINED_IMPORT records *)
+    fixsize := RoundUp(symboloff + 15, 8); (* _dlopen\0_dlsym\0 *)
     fixups := linkedit;
-    trie   := linkedit + 56;
-    starts := linkedit + 104;
-    symoff := linkedit + 112;
-    stroff := linkedit + 144;
-    sigoff := linkedit + 176;
+    trie   := fixups + fixsize;
+    starts := trie + 48;
+    symoff := starts + 8;
+    stroff := symoff + 32;
+    sigoff := stroff + 32;
 
     idlen   := StringSize(IDENT);
     nslots  := (sigoff + PAGESIZE - 1) DIV PAGESIZE;
@@ -286,7 +298,7 @@ BEGIN
     U64(img, 208, VMBASE + CODEOFF);
     U64(img, 216, codelen);
     U32(img, 224, CODEOFF);
-    U32(img, 228, 4);           (* align: 2^4 = 16 *)
+    U32(img, 228, 3);           (* CODEOFF is aligned to 8 bytes *)
     U32(img, 232, 0);           (* reloff *)
     U32(img, 236, 0);           (* nreloc *)
     U32(img, 240, 0080000400H); (* S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS *)
@@ -297,7 +309,7 @@ BEGIN
     Segment64(img, 328, "__LINKEDIT", VMBASE + linkedit,
         RoundUp(total - linkedit, SEGALIGN), linkedit, total - linkedit, 1, 0);
 
-    DataCmd(img, 400, LC_DYLD_CHAINED_FIXUPS, fixups, 56);
+    DataCmd(img, 400, LC_DYLD_CHAINED_FIXUPS, fixups, fixsize);
     DataCmd(img, 416, LC_DYLD_EXPORTS_TRIE, trie, 48);
 
     U32(img, 432, LC_SYMTAB);
@@ -367,13 +379,29 @@ BEGIN
         CHL.SetByte(img, dataoff + k, CHL.GetByte(program.data, k))
     END;
 
-    (* chained fixups: the header, and a start table for four segments
-       with no fixups in any of them (nothing is ever actually imported) *)
-    U32(img, fixups + 4, 020H);   (* starts_offset *)
-    U32(img, fixups + 8, 034H);   (* imports_offset *)
-    U32(img, fixups + 12, 034H);  (* symbols_offset *)
-    U32(img, fixups + 20, 1);     (* DYLD_CHAINED_IMPORT *)
-    U32(img, fixups + 32, 4);     (* includes __PAGEZERO and __LINKEDIT *)
+    (* Four image segments; only __DATA has a chain. Its final page binds
+       two pointers through libSystem (dylib ordinal 1). See fixup-chains.h
+       in Apple's SDK: DYLD_CHAINED_PTR_64 uses a 4-byte next stride. *)
+    U32(img, fixups + 4, 32);
+    U32(img, fixups + 8, importoff);
+    U32(img, fixups + 12, symboloff);
+    U32(img, fixups + 16, 2);
+    U32(img, fixups + 20, 1); (* DYLD_CHAINED_IMPORT *)
+    U32(img, fixups + 32, 4);
+    U32(img, fixups + 44, 20); (* __DATA seg_info_offset, relative to starts *)
+    U32(img, fixups + 52, 22 + 2 * pagecount);
+    U16(img, fixups + 56, PAGESIZE);
+    U16(img, fixups + 58, 2); (* DYLD_CHAINED_PTR_64 *)
+    U64(img, fixups + 60, dataoff);
+    U16(img, fixups + 72, pagecount);
+    FOR k := 0 TO pagecount - 2 DO U16(img, fixups + 74 + 2 * k, 0FFFFH) END;
+    U16(img, fixups + 74 + 2 * (pagecount - 1), PAGESIZE - 16);
+    U32(img, fixups + importoff, 1); (* ordinal 1, name offset 0 *)
+    U32(img, fixups + importoff + 4, 1 + 8 * 512); (* name offset 8 *)
+    Ascii(img, fixups + symboloff, "_dlopen");
+    Ascii(img, fixups + symboloff + 8, "_dlsym");
+    U64(img, boot, 08010000000000000H); (* bind ordinal 0, next = 2 *)
+    U64(img, boot + 8, 08000000000000001H); (* bind ordinal 1, end chain *)
 
     (* the exports trie: __mh_execute_header at 0, _start at the entry *)
     U8(img, trie, 0);       U8(img, trie + 1, 1);
@@ -452,7 +480,7 @@ BEGIN
         pageBase := k * PAGESIZE;
         IF k = 0 THEN
             SHA256.HashList(img, PAGESIZE, digest)
-        ELSIF IsZeroPage(pageBase, codeEnd, dataoff) OR IsZeroPage(pageBase, dataEnd, linkedit) THEN
+        ELSIF IsZeroPage(pageBase, codeEnd, dataoff) OR IsZeroPage(pageBase, dataEnd, boot - boot MOD PAGESIZE) THEN
             digest := zeroHex
         ELSE
             IF sigoff - pageBase < PAGESIZE THEN

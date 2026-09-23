@@ -5,7 +5,7 @@
     All rights reserved.
 
     The macOS primitive behind the portable In: one byte from standard input,
-    read through the raw read(2) syscall that HOST wraps.  The parsing lives
+    read through the libSystem read(2) function that HOST wraps.  The parsing lives
     in lib/common/In.mod.
 
     Bytes are taken one at a time here rather than a line at a time because
