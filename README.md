@@ -15,7 +15,7 @@ Clone the repository, and you have a working Oberon compiler.
 | **Language** | Oberon-07 — the [2016 report](doc/Oberon07.Report_2016_05_03.pdf), plus the compiler's own extensions |
 | **Implemented in** | Oberon-07; the compiler is its own largest test case |
 | **Hosts** | Windows x86/x64 · Linux x86/x64 · macOS x64 · DOS (DPMI) |
-| **Output** | PE, ELF and Mach-O executables and shared libraries · raw ROM images · RVMxI bytecode |
+| **Output** | PE, LE, ELF and Mach-O executables and shared libraries · raw ROM images · RVMxI bytecode |
 | **Requires** | Nothing but this repository |
 | **Licence** | BSD 2-Clause |
 
@@ -158,7 +158,7 @@ same compiler → the same binary, byte for byte.
 ```
 source/    the compiler itself — lexer, parser, semantic analysis, the CPU back ends
            (x86, x86-64, ARM, MSP430, RVMxI) and the object/format writers
-           (PE, ELF, Mach-O, HEX, BIN)
+           (PE, LE, ELF, Mach-O, HEX, BIN)
 lib/       the run-time libraries
   common/    portable modules every target shares: Out, In, Files, Strings, CSV, Args
   Windows/   Linux/   macOS/   dpmi32/   MSP430/   STM32CM3/   RVMxI/   Math/
