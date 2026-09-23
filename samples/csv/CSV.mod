@@ -1,5 +1,5 @@
 ﻿(*
-    BSD 2-Clause License
+    Public domain
 
     Copyright (c) 2026-, DosWorld
     All rights reserved.
