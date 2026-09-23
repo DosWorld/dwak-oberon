@@ -1,4 +1,4 @@
-== DPMI32 Stubs
+# DPMI32 Stubs
 
 * D32LE4G.EXE - LE, micro-stub, load external DOS4G.EXE
 * D32LEPM.EXE - LE, PMODE/W
