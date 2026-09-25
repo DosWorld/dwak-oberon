@@ -5,7 +5,7 @@
     Copyright (c) 2019-2021, Anton Krotov
     All rights reserved.
 
-    HXDOS port of the File module. No Win32 DLL imports: everything goes
+    DPMI32 port of the File module. No Win32 DLL imports: everything goes
     through the DOS file services in DOS. A handle is a DOS handle, and -1
     still marks a failure.
 *)

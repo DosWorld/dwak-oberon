@@ -4,7 +4,7 @@
     Copyright (c) 2026-, DosWorld
     All rights reserved.
 
-    HXDOS runtime API. No Win32 DLL imports. Memory comes from one large
+    DPMI32 runtime API. No Win32 DLL imports. Memory comes from one large
     flat 32-bit DPMI block (int 31h AX=0501h), sized from the free memory
     the host reports (AX=0500h); inside it a heap is used:
     blocks are linked in one list by linear offset, allocation takes the
@@ -28,7 +28,7 @@ IMPORT SYSTEM, DOS;
 
 CONST
 
-    OS* = "HXDOS";
+    OS* = "DPMI32";
     eol* = 0DX + 0AX;
     BIT_DEPTH* = (ORD(LSL(1, 31) > 0) + 1) * 32;
 

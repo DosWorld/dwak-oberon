@@ -5,7 +5,7 @@
     Copyright (c) 2019-2020, Anton Krotov
     All rights reserved.
 
-    HXDOS port of the Console module. No Win32 DLL imports: the cursor lives
+    DPMI32 port of the Console module. No Win32 DLL imports: the cursor lives
     in the BIOS data area, and the sixteen colour constants below are the
     VGA text attributes, so they can be handed to DOS.Attr unchanged.
 *)

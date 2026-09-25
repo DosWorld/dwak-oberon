@@ -4,7 +4,7 @@
     Copyright (c) 2026-, DosWorld
     All rights reserved.
 
-    HXDOS host layer. No Win32 DLL imports: console, files, arguments and
+    DPMI32 host layer. No Win32 DLL imports: console, files, arguments and
     the current directory are provided by DOS (int 21h) via the DOS module.
 *)
 

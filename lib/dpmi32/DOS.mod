@@ -4,7 +4,7 @@
     Copyright (c) 2026-, DosWorld
     All rights reserved.
 
-    HXDOS low-level DOS layer. No Win32 DLL imports.
+    DPMI32 low-level DOS layer. No Win32 DLL imports.
 
     A protected mode program cannot execute a real mode interrupt itself: int
     21h belongs to the real mode DOS and the BIOS interrupts to the real mode
@@ -1669,7 +1669,7 @@ VAR
     i, p: INTEGER;
 
 BEGIN
-    msg := "HXDOS: no DOS memory for the interrupt block";
+    msg := "DPMI32: no DOS memory for the interrupt block";
     p := VID + 2 * 80 * 10;             (* the eleventh line of the screen *)
     i := 0;
     WHILE msg[i] # 0X DO
