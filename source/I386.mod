@@ -8,7 +8,7 @@
 
 MODULE I386;
 
-IMPORT SYSTEM, IL, REG, UTILS, LISTS, BIN, PE32, LE, ELF, PROG, SCAN,
+IMPORT SYSTEM, IL, REG, UTILS, LISTS, BIN, PE32, LE, ADAM, ELF, PROG, SCAN,
        CHL := CHUNKLISTS, PATHS, TARGETS, ERRORS;
 
 
@@ -2523,6 +2523,29 @@ BEGIN
         OutByte(0FCH);      (* cld *)
         OutByte2(0DBH, 0E3H) (* fninit *)
     END;
+
+    IF target = TARGETS.DPMI32ADAM THEN
+        (* The variables have to be cleared here: DOS32 reads the image into
+           the front of the block and writes nothing past it, and the block
+           comes from the DPMI host holding the previous client's bytes, so
+           the part of it the image does not cover is not zero. The variables
+           begin at BSS and the stack the loader set begins at ESP, both of
+           them offsets the flat selector the whole image runs under is based
+           at, so what lies between them is what has to be cleared -- in
+           dwords, before any of it can be read. The direction flag is not
+           defined at entry and STOS works through ES:EDI, not DS:EDI, hence
+           the two instructions in front. *)
+        OutByte2(1EH, 07H);          (* push ds; pop es *)
+        OutByte(0FCH);               (* cld *)
+        OutByte(0BFH);               (* mov edi, BSS *)
+        Reloc(BIN.RBSS, 0);
+        OutByte2(89H, 0E1H);         (* mov ecx, esp *)
+        OutByte2(29H, 0F9H);         (* sub ecx, edi *)
+        OutByte3(0C1H, 0E9H, 2);     (* shr ecx, 2 *)
+        OutByte2(31H, 0C0H);         (* xor eax, eax *)
+        OutByte2(0F3H, 0ABH)         (* rep stosd *)
+    END;
+
     push(ebp);
     mov(ebp, esp);
     SetLabel(NewLabel());
@@ -2662,7 +2685,7 @@ VAR
 
 BEGIN
 
-    IF target IN {TARGETS.Win32C, TARGETS.Win32GUI, TARGETS.Linux32, TARGETS.DPMI32PE, TARGETS.DPMI32LE} THEN
+    IF target IN {TARGETS.Win32C, TARGETS.Win32GUI, TARGETS.Linux32, TARGETS.DPMI32PE, TARGETS.DPMI32LE, TARGETS.DPMI32ADAM} THEN
         pushc(0);
         CallRTL(pic, IL._exit);
     ELSIF target IN {TARGETS.Win32DLL, TARGETS.DPMI32DLL} THEN
@@ -2757,7 +2780,7 @@ BEGIN
     tcount := CHL.Length(IL.codes.types);
 
     opt := options;
-    IF target = TARGETS.DPMI32LE THEN opt.pic := FALSE END;
+    IF target IN {TARGETS.DPMI32LE, TARGETS.DPMI32ADAM} THEN opt.pic := FALSE END;
 
     Free;
     program := BIN.create(IL.codes.lcount);
@@ -2779,6 +2802,8 @@ BEGIN
     BIN.fixup(program);
     IF target = TARGETS.DPMI32LE THEN
         LE.write(program, outname, opt.stub)
+    ELSIF target = TARGETS.DPMI32ADAM THEN
+        ADAM.write(program, outname, opt.stub)
     ELSIF target IN {TARGETS.DPMI32PE, TARGETS.DPMI32DLL} THEN
         PE32.write(program, outname, opt.stub, TRUE, target = TARGETS.DPMI32DLL, FALSE, opt.PE32FileAlignment)
     ELSIF TARGETS.OS = TARGETS.osWIN32 THEN

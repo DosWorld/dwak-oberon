@@ -19,6 +19,7 @@ CONST
     DEF_WINDOWS   = "WINDOWS";
     DEF_DOS       = "DOS";
     DEF_DPMI32    = "DPMI32";
+    DEF_DOS32     = "DOS32";
     DEF_LINUX     = "LINUX";
     DEF_MACOS     = "MACOS";
 
@@ -90,6 +91,17 @@ BEGIN
             IF param[0] = "-" THEN
                 DEC(i)
             ELSE
+                (* The one path on the command line that was not folded to
+                   this host's separator.  The input module is folded above
+                   and -l and -stub each fold theirs where they are used;
+                   the output name has to be folded here, because it is not
+                   only opened but split - PATHS.split looks for this host's
+                   separator to find the directory in it, and an i386 image
+                   records the base name it was given as its own module
+                   name, so the other separator puts the whole string there
+                   and loses the directory. *)
+                Strings.ReplaceChar(param, "\", UTILS.slash);
+                Strings.ReplaceChar(param, "/", UTILS.slash);
                 out := param
             END
 
@@ -282,6 +294,7 @@ BEGIN
             OutTargetItem(TARGETS.DPMI32PE, "DOS PE-executable (HX-DOS Extender)");
             OutTargetItem(TARGETS.DPMI32DLL, "DOS DLL (HX-DOS Extender)");
             OutTargetItem(TARGETS.DPMI32LE, "DOS LE-executable (old DOS-extenders)");
+            OutTargetItem(TARGETS.DPMI32ADAM, "DOS32-executable (Adam Seychell's extender)");
             OutTargetItem(TARGETS.STM32CM3, "STM32 Cortex-M3 microcontrollers")
         END;
         OutTargetItem(TARGETS.MSP430, "MSP430x{1,2}xx microcontrollers");
@@ -290,9 +303,9 @@ BEGIN
         Out.StringLn("  -out <file name>      output");
         Out.StringLn("  -l <path>             set path to the lib directory");
         Out.StringLn("                        (default: lib next to the exe)");
-        Out.StringLn("  -stub <file>          set custom PE/LE DOS stub file");
-        Out.StringLn("                        (default: W32PE.EXE/D32PE.EXE/D32LE.EXE in lib)");
-        Out.StringLn("  -stk <size>           set size of stack in Mbytes (Windows, Linux, HX-DOS, LE-DOS)");
+        Out.StringLn("  -stub <file>          set custom PE/LE/DOS32 DOS stub file");
+        Out.StringLn("                        (default: W32PE.EXE/D32PE.EXE/D32LE.EXE/D32ADAM.EXE in lib)");
+        Out.StringLn("  -stk <size>           set size of stack in Mbytes (Windows, Linux, HX-DOS, LE-DOS, DOS32)");
         Out.StringLn("  -nochk <'ptibcwra'>   disable runtime checking (pointers, types, indexes,");
         Out.StringLn("                        BYTE, CHR, WCHR)");
         Out.StringLn("  -lower                allow lower case for keywords (default)");
@@ -373,8 +386,8 @@ BEGIN
     END;
 
     (* lib_path is still the plain lib directory here, common to every
-       target; the PE/LE DOS stub files (W32PE.EXE, D32PE.EXE, D32LE.EXE)
-       live there, not under a target subdirectory. *)
+       target; the PE/LE/DOS32 stub files (W32PE.EXE, D32PE.EXE, D32LE.EXE,
+       D32ADAM.EXE) live there, not under a target subdirectory. *)
     lib_root := lib_path;
 
     IF stub_arg # "" THEN
@@ -391,6 +404,7 @@ BEGIN
         CASE target OF
         |TARGETS.DPMI32PE: ASSERT(Strings.Append("D32PE.EXE", options.stub))
         |TARGETS.DPMI32LE: ASSERT(Strings.Append("D32LE.EXE", options.stub))
+        |TARGETS.DPMI32ADAM: ASSERT(Strings.Append("D32ADAM.EXE", options.stub))
         ELSE                ASSERT(Strings.Append("W32PE.EXE", options.stub))
         END
     END;
@@ -436,6 +450,16 @@ BEGIN
     |TARGETS.cpuRVM64I: SCAN.NewDef(DEF_BITS_64)
     END;
 
+    (* Which extender the program will run under is not something OS says: the
+       two dpmi32 targets that are not the Adam one present themselves as
+       osDPMI32 exactly as it does.  What tells them apart is the API the
+       extender answers with, and a library that has to know - and DOS.mod
+       does, because DOS32 shares no call with DPMI but the interrupt number -
+       is handed the name.  See lib/dpmi32/DOS.mod. *)
+    IF TARGETS.target = TARGETS.DPMI32ADAM THEN
+        SCAN.NewDef(DEF_DOS32)
+    END;
+
     (* The width of a REAL is not the width of an INTEGER.  Win32, Linux32 and
        the HX-DOS targets run a 32-bit INTEGER beside a 64-bit REAL, and the
        small CPUs run both narrow, so neither BITS_32 nor BITS_64 says how many
@@ -444,6 +468,7 @@ BEGIN
        bytes of REAL needs 10 significant digits, 8 bytes needs 15.  A target
        with no REAL at all - MSP430, whose RealSize is 0 - gets neither symbol. *)
     CASE TARGETS.RealSize OF
+    |0: (* no REAL at all - MSP430 - so neither symbol is defined *)
     |4: SCAN.NewDef(DEF_REAL_32)
     |8: SCAN.NewDef(DEF_REAL_64)
     END;

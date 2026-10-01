@@ -23,7 +23,7 @@ CONST
 
     (* x86-64 Darwin stat$INODE64, verified against the installed SDK and
        native stat calls: sizeof = 144, mode_t = uint16 at 4, mtime at 48. *)
-    STAT_SIZE = 144;
+    STAT_SIZE* = 144;
     ST_MODE_OFFS = 4;
     S_IFMT = 0F000H; S_IFDIR = 04000H;
     ST_MTIME_OFFS = 48;

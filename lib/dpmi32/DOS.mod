@@ -18,11 +18,13 @@
     That call needs a real mode call structure - the register set the service
     is entered with - and the structure, like everything a service is pointed
     at, can only live below 1 MB: a real mode address is a segment and an
-    offset. Both therefore live in one 64 KB DOS block, allocated once at load
-    time. A path is copied into it by LowName and file data goes through its
-    transfer buffer, which is what the wrappers below hide from their callers;
-    a caller that reaches for DOS.Intr* itself has to do the same and says so
-    by putting the block's segment in the DS field of the Registers record.
+    offset. Both therefore live in one DOS block, taken once at load time (64
+    KB allocated from the host on the DPMI targets, the 8 KB buffer the
+    extender lends on Adam). A path is copied into it by LowName and file data
+    goes through its transfer buffer, which is what the wrappers below hide
+    from their callers; a caller that reaches for DOS.Intr* itself has to do
+    the same and says so by putting the block's segment in the DS field of the
+    Registers record.
 
     DPMI is not a real mode service, so its own calls are made directly, by
     Int31, the one interrupt this layer still spells as an instruction. Three
@@ -32,6 +34,37 @@
     mode), and AH=4Ch, which terminates the client only because the host
     intercepts it - reflected, it reaches the real mode DOS, which terminates
     the extender's own stub and leaves this program running (see Exit).
+
+    A second extender answers the same int 31h with an API of its own: DOS32,
+    which runs the Adam image this compiler writes for dpmi32adam
+    (doc/ADAM.TXT). It has none of the DPMI calls above - 0400h, 0100h, 0500h,
+    0501h and 0502h are not in its dispatcher, and a client that makes one is
+    reflected into real mode, where there is no host to answer it - and what
+    it offers instead is its own set: AX=EE02h reports the addresses of the
+    program, and AX=EE42h/EE40h allocate a block and undo the last
+    allocation. The rest of this layer is the same on both, because both are
+    reached the same way: a reflected real mode interrupt.
+
+    What Adam does change is every address in the module. DOS32 loads the
+    program under one selector based at the start of the program block, not at
+    0, so the first megabyte - the BIOS data area, text video memory, the PSP
+    and the environment DOS set up - is out of reach of the program's own data
+    selector: an address there is (linear - program base), and what the
+    extender hands over is already in that form (it calls the PSP, the
+    environment and the path "offsets relative to the main program segment",
+    and its own 8 KB buffer sits at 16*AX - base). progBase below is 0 on
+    every other target and that base here, and every address below 1 MB is
+    named as `linear - progBase`, so the code that reads the BIOS data area or
+    writes text video memory is the same text on every target and no selector
+    is ever switched.
+
+    The real mode call structure is the one thing that has to be placed rather
+    than just addressed. It must be in memory this program can name, because
+    the program has to fill it in and read it back; on the DPMI targets the
+    block is flat, so its own contents qualify and the structure sits at
+    LOW_RMCS inside it, while on Adam a structure in the 8 KB buffer would be
+    addressed as an offset into a segment the program cannot name, and it is a
+    variable of this module instead.
 
     Every name this layer hands to DOS goes through an LFN function first -
     open and create AH=716Ch, delete AH=7141h, attributes AH=7143h, rename
@@ -50,7 +83,7 @@
     clear means the call ran, set means it failed or was never there, and the
     classic form goes behind it. Every LFN call here is written that way, and
     the classic call it falls back to is entered with the flag clear, the way
-    any other DOS call is (section 2 of doc/hxdos.txt has the measurements).
+    any other DOS call is (section 2 of doc/dpmi32.txt has the measurements).
 
     General registers are 32-bit (INTEGER); the low word is the 16-bit
     register (AX, BX, ...). Segment/flag fields are WORD, and the register
@@ -74,13 +107,75 @@ IMPORT SYSTEM;
 
 CONST
 
-    (* BIOS data area, addressable because an HX client runs flat. *)
+    (* BIOS data area and text video memory. Both are below 1 MB, which on
+       Adam is outside what the program's own data selector reaches, so every
+       address here is used as `BDA_x - progBase` / `VID - progBase`: on every
+       other target progBase is 0 and that is the address itself, and on Adam
+       it is the difference between a linear address and one this program can
+       name (see the module header). *)
     BDA_COLS = 44AH;                    (* number of text columns *)
     BDA_ROWS = 484H;                    (* number of text rows, minus one *)
     BDA_CURS = 450H;                    (* cursor position on page 0 *)
     VID      = 0B8000H;                 (* text page 0 of the colour adapter *)
     SPACE    = 20H;
     DEF_ATTR = 7;                       (* light grey on black *)
+
+    (* The find area: what a directory walk keeps in the block, carved off the
+       top of the transfer buffer.
+
+       Three things live in it, and they are all here rather than in the path
+       buffer because a walk outlives the call that started it. The path buffer
+       is rewritten by every other call in this module that takes a name, so a
+       caller that reads an entry and then opens it - the thing a directory
+       dialog does - would take the walked directory out from under the walk
+       that found it. The find area is touched by nothing but the walk itself.
+
+         +000h  the LFN walk's find block          323 bytes
+         +150h  the classic walk's DTA               43 bytes
+         +180h  the walk's path                     512 bytes
+
+       The block and the DTA are both live at once in LFN mode - the block holds
+       the entry while the DTA is where that entry's stamp is asked for - so
+       they do not overlap. The path holds the directory the walk is in with
+       *.* after it, for as long as the walk lasts, and an entry's name is
+       written over the *.* when that entry's stamp is asked for; in the classic
+       walk it is the mask AH=4Eh and AH=4Fh are both given, and is never
+       overwritten.
+
+       The area ends where the transfer buffer used to, so the stack below it -
+       which the comment above allots the Adam target 2 KB of, and which the
+       compiler itself is built and self-hosted on - is exactly as large as it
+       was. What shrinks is the transfer buffer, and that is staging space this
+       layer already reads and writes in a loop of chunks. *)
+    LOW_FIND_LEN = 400H;
+
+$IF (DOS32)
+
+    (* Adam: the extender lends the program one 8 KB buffer - the one its own
+       file services use - and that is the whole of the DOS memory this layer
+       has (int 31h AX=EE02h). The layout below does not fit in it, and it does
+       not have to: the call structure has to be somewhere the program can
+       address it, and on Adam that is the program's own data (see Intr), since
+       anything a real mode service is pointed at travels as a segment and an
+       offset whatever it is. What is left for the buffer is the two names, the
+       transfer buffer and the stack a reflected call runs on.
+
+       0000h  unused, the call structure being in the program's data
+       0040h  the path buffer                     512 bytes
+              one name, or two of 256 bytes each for the calls that take two
+       0240h  the transfer buffer              4544 bytes
+       1400h  the find area                     1024 bytes
+       1800h .. 2000h  the real mode stack         2 KB *)
+    LOW_BUF = 2000H;                    (* the buffer EE02h lends, in bytes *)
+    LOW_NAME = 40H;
+    LOW_NAME_LEN = 200H;
+    LOW_HALF = 100H;
+    LOW_NAME2 = LOW_NAME + LOW_HALF;
+    LOW_DATA = 240H;
+    LOW_DATA_LEN = 15C0H;               (* the transfer buffer and the find area *)
+    LOW_SP = LOW_BUF;                   (* where that stack starts, growing down *)
+
+$ELSE
 
     (* The DOS block: 64 KB, the largest single block DOS hands out, and the
        only memory a real mode service can be pointed at. Everything a
@@ -92,7 +187,8 @@ CONST
        0040h  the path buffer                     512 bytes
               one name, or two of 256 bytes each for the calls that take
               two names: the old one at 0040h, the new one at 0140h
-       0240h  the transfer buffer               48 KB
+       0240h  the transfer buffer              48128 bytes
+       0BE40h  the find area                    1024 bytes
        0C240h .. 0FFFEh  the real mode stack        ~15 KB *)
     LOW_BLOCK = 1000H;                  (* the block, in paragraphs *)
     LOW_RMCS = 0;                       (* segment offset into the block *)
@@ -106,8 +202,71 @@ CONST
                                            is cut like any other *)
     LOW_NAME2 = LOW_NAME + LOW_HALF;
     LOW_DATA = 240H;
-    LOW_DATA_LEN = 0C000H;
+    LOW_DATA_LEN = 0C000H;              (* the transfer buffer and the find area *)
     LOW_SP = 0FFFEH;                    (* where that stack starts, growing down *)
+
+$END
+
+    (* The transfer buffer proper, and the find area at the top of it. Derived
+       and not written twice: the two layout comments above say where the whole
+       buffer ends, and these two say where it is divided. LOW_DATA_LEN stays
+       the extent the comments describe, so the arithmetic here reads straight
+       off them. *)
+    LOW_STAGE_LEN = LOW_DATA_LEN - LOW_FIND_LEN;
+    LOW_FIND = LOW_DATA + LOW_STAGE_LEN;
+    LOW_FBLK = LOW_FIND;                (* the LFN walk's find block *)
+    LOW_DTA  = LOW_FIND + 150H;         (* the classic walk's DTA *)
+    LOW_PATH = LOW_FIND + 180H;         (* the walk's path *)
+    LOW_PATH_LEN = 200H;
+
+    (* The fields of the LFN find block, as DOSBox-X fills them in per
+       doc/dpmi32.txt: the attribute is a dword whose low byte is the DOS
+       attribute, the size is a pair of dwords and the name is a 260 byte
+       ASCIZ field. cAlternateFileName is at 130H and not 12CH - 44 + 260 - and
+       that one offset is worth being careful about: 12CH falls inside the zero
+       tail of cFileName and reads as an empty alias for every entry, which is
+       a reading that produces a whole design around a field that is not
+       empty. The alias is filled in exactly when the name is not already
+       valid 8.3, which is what makes it the right name to hand the classic
+       side. *)
+    FBLK_ATTR = 0;                      (* dword; its low byte is the attribute *)
+    FBLK_SIZE = 20H;                    (* dword; nFileSizeLow *)
+    FBLK_NAME = 2CH;                    (* 260 bytes, ASCIZ *)
+    FBLK_NAME_LEN = 104H;
+    FBLK_ALT = 130H;                    (* 14 bytes, ASCIZ; empty for 8.3 *)
+    FBLK_ALT_LEN = 0EH;
+
+    (* The fields of the DTA the classic walk fills: the attribute byte, the two
+       packed words and the size, in front of a 13 byte ASCIZ name. *)
+    DTA_ATTR = 15H;
+    DTA_TIME = 16H;
+    DTA_DATE = 18H;
+    DTA_SIZE = 1AH;
+    DTA_NAME = 1EH;
+    DTA_NAME_LEN = 0DH;
+
+    (* What a walk is asked for. No caller gets to choose this one.
+
+       The two matchers disagree, and not only across the two walks: measured
+       under DOSBox-X, ?E* and TE* find TEST1.MOD through the LFN walk and
+       nothing at all through the classic one, and *E* finds thirteen where the
+       classic walk finds four. So which entries a caller is offered would
+       otherwise depend on whether the host running it happens to have LFN
+       support, which is not a difference any caller could be told about. A walk
+       here is therefore always started on *.* - measured to mean every entry in
+       both walks, extensionless names and directories included - and the
+       caller's own mask is applied by Dirs.Match, once, for every platform.
+
+       17H is read-only, hidden, system and directory. 10H leaves a read-only
+       file out; 3FH additionally returns the volume label, which is not a
+       directory entry on any other platform and is not one here either. *)
+    FIND_ATTR = 17H;
+
+    (* The two negatives a walk's handle can be. A walk that is over, and one
+       that was never started, are FIND_NONE; the 8.3 walk has no handle at all,
+       its state being the DTA, and is FIND_CLASSIC. *)
+    FIND_NONE = -1;
+    FIND_CLASSIC = -2;
 
     (* The program segment prefix DOS builds for every program: its command
        tail is a length byte and then that many characters, with no
@@ -146,15 +305,59 @@ TYPE
 
     CallP = POINTER TO Call;
 
+    (* A walk in progress. handle is the LFN search's own handle, or
+       FIND_CLASSIC for the 8.3 walk, which keeps its state in the DTA and has
+       no handle at all, or FIND_NONE for a walk that is over - which is what
+       FindFirst leaves behind when the directory is not there or is empty, and
+       what FindNext and FindClose leave behind when they have finished.
+
+       tail is where the *.* that ends the walk's path begins, so that an
+       entry's name can be written over it to make the path that entry's stamp
+       is asked for. It is an offset into LOW_PATH and stays valid for the whole
+       walk, because nothing but the walk writes there. *)
+    Find* = RECORD
+        handle*: INTEGER;
+        tail*:   INTEGER
+    END;
+
 
 VAR
 
     attr:   INTEGER;                    (* attribute chosen by SetAttr *)
     attrOn: BOOLEAN;                    (* set once a colour was chosen *)
 
+    (* Where this program's segment starts. Zero on every target whose client
+       runs at linear 0 - which is all of them but Adam - and the base DOS32
+       reports in EBX (int 31h AX=EE02h), around 20 MB, under DOS32. Every
+       address below 1 MB is named as `linear - progBase` so that the same
+       expression is the address itself on one target and the address to hand
+       to SYSTEM on the other. See the module header. *)
+    progBase: INTEGER;
+
+$IF (DOS32)
+
+    (* Adam: what the extender reports for the PSP, the environment and the
+       program's own path, in the form the program can address them in - the
+       offsets EE02h calls "relative to the main program segment". They are not
+       linear addresses: the PSP sits *below* the program base, so the linear
+       address of what pspNear points at is progBase + pspNear. The other
+       targets reach all three through DOS itself and need no such address. *)
+    pspNear, envNear, pathNear: INTEGER;
+
+    (* The call structure, in the program's own data. A variable here rather
+       than at LOW_RMCS in the block for two reasons: the block on this target
+       is the extender's 8 KB one and cannot afford the room, and a structure
+       the host has to read has to be somewhere the program can name - which,
+       with the extender's selector based at the program rather than at 0, is
+       the program's own data. *)
+    rmRec:  Call;
+
+$END
+
     lowSeg: INTEGER;                    (* the DOS block, as DOS names it *)
     lowLin: INTEGER;                    (* the same block, as this program does *)
-    rm:     CallP;                      (* the call structure inside it, at LOW_RMCS *)
+    rm:     CallP;                      (* the call structure *)
+    rmAdr:  INTEGER;                    (* where it is, as ES:EDI wants it *)
 
 
 (* Execute int 31h with the registers from the record at rcadr. This is the
@@ -265,7 +468,7 @@ BEGIN
     q.ECX := 0;
     q.EDX := 0;
     q.ESI := 0;
-    q.EDI := lowLin + LOW_RMCS;         (* ES:EDI = the call structure *)
+    q.EDI := rmAdr;                     (* ES:EDI = the call structure *)
     Int31(SYSTEM.ADR(q));
 
     r.EAX := rm.EAX MOD 10000H;
@@ -364,6 +567,19 @@ END Zero;
    sel are 0 and err carries the DPMI error code (DOS error 8, "insufficient
    memory", is the usual one). *)
 PROCEDURE AllocDOS9* (paras: INTEGER; VAR seg, sel, err: INTEGER);
+$IF (DOS32)
+BEGIN
+    (* DOS32 has no DPMI memory service to call: 0100h is not in its int 31h
+       dispatcher, and a client that made the call would be reflected into
+       real mode, where there is no host to answer it. Memory under DOS32
+       comes from the extender's own AX=EE42h (DpmiAlloc below); a caller that
+       wants a real mode segment rather than memory has the 8 KB buffer that
+       AX=EE02h reports. Nothing is allocated, and the refusal is reported the
+       way DOS reports one, as error 8, "insufficient memory". *)
+    seg := 0;
+    sel := 0;
+    err := 8
+$ELSE
 VAR
     r: Registers;
 
@@ -381,6 +597,7 @@ BEGIN
         sel := r.EDX MOD 10000H;
         err := 0
     END
+$END
 END AllocDOS9;
 
 
@@ -399,18 +616,55 @@ BEGIN
 END AllocDOS;
 
 
-(* Allocate linear memory (DPMI int 31h AX=0501h). Returns linear address
-   in addr (flat), memory handle in handle and the carry flag in cf. *)
+(* Allocate linear memory (DPMI int 31h AX=0501h) and report the version of
+   the host that would answer it (AX=0400h). *)
 PROCEDURE DpmiVer* (): INTEGER;
 VAR
     r: Registers;
 
 BEGIN
+$IF (DOS32)
+    (* 0400h is not a call DOS32 answers - it is reflected into real mode,
+       where this client dies - so what comes back here is the extender's own
+       version call instead, the one it does answer. A caller gets DOS32's
+       version (330H for DOS32 3.3) where it would get DPMI's on the other
+       targets; both are the number the extender reports for itself, which is
+       what the name of this procedure is about. *)
+    Zero(r);
+    r.EAX := 0EE00H;
+    Int31(SYSTEM.ADR(r));
+    RETURN r.EAX MOD 10000H
+$ELSE
     Zero(r);
     r.EAX := 400H;
     Int31(SYSTEM.ADR(r));
     RETURN r.EAX MOD 10000H
+$END
 END DpmiVer;
+
+
+$IF (DOS32)
+
+(* Give back the block the extender handed out last (int 31h AX=EE40h). This
+   allocator keeps no handles at all: EE42h hands out a block and EE40h takes
+   back whichever block was handed out most recently, with nothing to say
+   which one that was. So the only block that can be undone is the one just
+   made, and that is how the two callers below use it - one asked for more
+   than the machine has and got a smaller block for its trouble, the other
+   asked for far more than that just to be told the size. Both undo before
+   they return, so that what they leave behind is the allocation state they
+   found. *)
+PROCEDURE UndoAlloc;
+VAR
+    r: Registers;
+
+BEGIN
+    Zero(r);
+    r.EAX := 0EE40H;
+    Int31(SYSTEM.ADR(r))
+END UndoAlloc;
+
+$END
 
 
 (* DPMI int 31h AX=0500h: how much memory is left. The host fills a 48-byte
@@ -419,6 +673,27 @@ END DpmiVer;
    refused or leave memory the host could have given us unused. Returns 0 if
    the host does not answer. *)
 PROCEDURE DpmiMaxFree* (): INTEGER;
+$IF (DOS32)
+VAR
+    r: Registers;
+
+BEGIN
+    (* There is no 0500h record to read here, so the size is asked for the
+       other way round: EE42h is given a size no machine can meet, and answers
+       in EAX with the largest one it can - a 4 KB multiple, the same figure
+       0500h would have reported. That request did not fail outright, it was
+       partly met, so EAX is also what has to be given back; EAX = 0 is the
+       one answer that means nothing was allocated and so nothing may be
+       undone. What is left in EDX - the block that was allocated and undone -
+       is of no interest here and is not read. *)
+    Zero(r);
+    r.EAX := 0EE42H;
+    r.EDX := 7FFFF000H;
+    Int31(SYSTEM.ADR(r));
+    IF r.EAX # 0 THEN UndoAlloc END;
+
+    RETURN r.EAX
+$ELSE
 CONST
     UNANSWERED = -1;
 
@@ -433,6 +708,7 @@ BEGIN
     IF res = UNANSWERED THEN res := 0 END;
 
     RETURN res
+$END
 END DpmiMaxFree;
 
 
@@ -440,6 +716,44 @@ END DpmiMaxFree;
    Input size in BX:CX (BX high, CX low);
    output linear address in BX:CX, handle in SI:DI. *)
 PROCEDURE DpmiAlloc* (size: INTEGER; VAR addr, handle, cf, err: INTEGER);
+$IF (DOS32)
+VAR
+    r: Registers;
+
+BEGIN
+    (* EE42h takes the size in EDX and answers with the block's near pointer in
+       EDX - an address this program can use as it stands, the extender having
+       based its selector at the program - and the size it actually gave in
+       EAX. The carry says whether the request was met: clear, and the block is
+       the size that was asked for; set, and it is EAX bytes, a smaller block
+       handed over rather than a refusal.
+
+       There is no handle to hand back - 0502h takes one and this extender has
+       no such call - so handle is 0, and the caller's answer is the carry and
+       the error code, exactly as on the other targets. A block that came back
+       short is not used: the caller asked for a size and, as far as it can
+       tell, did not get it, so the block is given back and the failure is
+       reported as error 8, "insufficient memory". API.SetupHeap retries with
+       half the size, and a second, successful call is then what the heap is
+       built on. Undoing first is what keeps that retry from allocating on top
+       of a block nobody holds. *)
+    Zero(r);
+    r.EAX := 0EE42H;
+    r.EDX := size;
+    Int31(SYSTEM.ADR(r));
+    IF ORD(r.Flags) MOD 2 = 0 THEN
+        addr := r.EDX;
+        handle := 0;
+        cf := 0;
+        err := 0
+    ELSE
+        IF r.EAX # 0 THEN UndoAlloc END;
+        addr := 0;
+        handle := 0;
+        cf := 1;
+        err := 8
+    END
+$ELSE
 VAR
     r: Registers;
 
@@ -453,6 +767,7 @@ BEGIN
     handle := (r.ESI MOD 10000H) * 10000H + (r.EDI MOD 10000H);
     cf := ORD(r.Flags) MOD 2;
     err := r.EAX MOD 10000H
+$END
 END DpmiAlloc;
 
 
@@ -464,6 +779,15 @@ END DpmiAlloc;
    host, which is why API.FreeHeap lets its handle go unclosed rather than
    spending it here (API.mod, and HDPMI\I31MEM.ASM). *)
 PROCEDURE DpmiFree* (handle: INTEGER);
+$IF (DOS32)
+BEGIN
+    (* No handle is asked for and none can be honoured: this extender frees the
+       preceding allocation and there is no way to name another (UndoAlloc).
+       Every caller here has just allocated what it is freeing, which is the
+       one case EE40h can serve, and the argument is ignored rather than
+       refused - a handle is 0 on this target anyway. *)
+    UndoAlloc
+$ELSE
 VAR
     r: Registers;
 
@@ -473,6 +797,7 @@ BEGIN
     r.ESI := handle DIV 10000H;
     r.EDI := handle MOD 10000H;
     Int31(SYSTEM.ADR(r))
+$END
 END DpmiFree;
 
 
@@ -500,7 +825,7 @@ BEGIN
     rem := len;
     WHILE rem > 0 DO
         chunk := rem;
-        IF chunk > LOW_DATA_LEN THEN chunk := LOW_DATA_LEN END;
+        IF chunk > LOW_STAGE_LEN THEN chunk := LOW_STAGE_LEN END;
         SYSTEM.MOVE(adr, lowLin + LOW_DATA, chunk);
         Zero(r);
         r.EAX := 4000H;
@@ -567,7 +892,8 @@ END RdLine;
 
 (* Text screen geometry and cursor. Both come from the BIOS data area, which
    DOS itself consults, so a program that moves the cursor with SetCursor sees
-   its own DOS output continue from there. *)
+   its own DOS output continue from there. The area is below 1 MB, so on Adam
+   each address is the one this program can name (see the module header). *)
 
 PROCEDURE ScrCols* (): INTEGER;
 VAR
@@ -575,7 +901,7 @@ VAR
     n: INTEGER;
 
 BEGIN
-    SYSTEM.GET(BDA_COLS, c);
+    SYSTEM.GET(BDA_COLS - progBase, c);
     n := ORD(c);
     IF n < 1 THEN n := 80 END;
 
@@ -589,12 +915,35 @@ VAR
     n: INTEGER;
 
 BEGIN
-    SYSTEM.GET(BDA_ROWS, c);
+    SYSTEM.GET(BDA_ROWS - progBase, c);
     n := ORD(c);
     IF n < 1 THEN n := 25 ELSE INC(n) END;
 
     RETURN n
 END ScrRows;
+
+
+(* Text video memory, as the address this program has to name it by: `VID`
+   everywhere but Adam, where the client's segment is based at progBase and the
+   screen is therefore `VID - progBase`, the same arithmetic every other
+   below-1 MB address in this module is named with.
+
+   It is handed out rather than kept private because a screen is a run of bytes
+   and a redraw is one move per row, so a caller that wants the whole row in one
+   SYSTEM.MOVE needs the address and not a call per cell.  What such a caller
+   must not do is write the bare 0B8000h: on Adam that reaches memory nobody is
+   displaying, and reading the screen back reaches the same place, so the
+   program draws a perfect picture into a place no one can see and its own
+   dumps still agree with a working build's.  Take the address from here. *)
+PROCEDURE Video* (): INTEGER;
+VAR
+    p: INTEGER;
+
+BEGIN
+    p := VID - progBase;
+
+    RETURN p
+END Video;
 
 
 (* Program the CRTC through the colour adapter ports so that the visible
@@ -628,8 +977,8 @@ VAR
     c: CHAR;
 
 BEGIN
-    SYSTEM.GET(BDA_CURS, c);     x := ORD(c);
-    SYSTEM.GET(BDA_CURS + 1, c); y := ORD(c)
+    SYSTEM.GET(BDA_CURS - progBase, c);     x := ORD(c);
+    SYSTEM.GET(BDA_CURS + 1 - progBase, c); y := ORD(c)
 END GetCursor;
 
 
@@ -645,8 +994,8 @@ BEGIN
     IF y < 0 THEN y := 0 END;
     IF x > cols - 1 THEN x := cols - 1 END;
     IF y > rows - 1 THEN y := rows - 1 END;
-    c := CHR(x MOD 256); SYSTEM.PUT(BDA_CURS, c);
-    c := CHR(y MOD 256); SYSTEM.PUT(BDA_CURS + 1, c);
+    c := CHR(x MOD 256); SYSTEM.PUT(BDA_CURS - progBase, c);
+    c := CHR(y MOD 256); SYSTEM.PUT(BDA_CURS + 1 - progBase, c);
     CrtcCursor(y * cols + x)
 END SetCursor;
 
@@ -675,6 +1024,28 @@ BEGIN
 END AttrOn;
 
 
+(* The eighth bit of an attribute byte.
+
+   Four bits of a cell's attribute are the foreground and three are the
+   background, which leaves one over - and that one is read by the adapter as
+   blink, so a background of eight or more is not a colour but a cell that
+   flashes.  Asking the BIOS for intensity instead is what gives the background
+   a fourth bit: the sixteen colours are then sixteen on both sides of the cell
+   and nothing flickers.  A program that wants a light background has no other
+   way to say so, and one that has asked for it owes the next program the bit
+   back - which is why this is a call and not a state the runtime remembers. *)
+PROCEDURE SetBlink* (on: BOOLEAN);
+VAR
+    r: Registers;
+
+BEGIN
+    Zero(r);
+    r.EAX := 1003H;                 (* AH=10h AL=03h: the blink/intensity bit *)
+    IF on THEN r.EBX := 1 ELSE r.EBX := 0 END;
+    Intr(10H, r)
+END SetBlink;
+
+
 (* Blank the screen in the given attribute and home the cursor. *)
 PROCEDURE ClearScr* (a: INTEGER);
 VAR
@@ -684,7 +1055,7 @@ VAR
 BEGIN
     w := WCHR(a MOD 256 * 100H + SPACE);
     n := ScrCols() * ScrRows();
-    p := VID;
+    p := VID - progBase;
     WHILE n > 0 DO
         SYSTEM.PUT(p, w);
         INC(p, 2);
@@ -703,10 +1074,10 @@ VAR
 BEGIN
     cols := ScrCols();
     rows := ScrRows();
-    SYSTEM.MOVE(VID + cols * 2, VID, (rows - 1) * cols * 2);
+    SYSTEM.MOVE(VID + cols * 2 - progBase, VID - progBase, (rows - 1) * cols * 2);
     w := WCHR(a MOD 256 * 100H + SPACE);
     n := cols;
-    p := VID + (rows - 1) * cols * 2;
+    p := VID + (rows - 1) * cols * 2 - progBase;
     WHILE n > 0 DO
         SYSTEM.PUT(p, w);
         INC(p, 2);
@@ -740,7 +1111,7 @@ BEGIN
             INC(y);
             IF y > rows - 1 THEN ScrollUp(a); y := rows - 1 END
         ELSE
-            p := VID + (y * cols + x) * 2;
+            p := VID + (y * cols + x) * 2 - progBase;
             SYSTEM.PUT(p, WCHR(a MOD 256 * 100H + ORD(c)));
             INC(x);
             IF x > cols - 1 THEN
@@ -1028,8 +1399,8 @@ BEGIN
     bad := FALSE;
     WHILE (rem > 0) & ~stop DO
         chunk := rem;
-        IF chunk > LOW_DATA_LEN THEN
-            chunk := LOW_DATA_LEN
+        IF chunk > LOW_STAGE_LEN THEN
+            chunk := LOW_STAGE_LEN
         END;
         Zero(r);
         r.EAX := 3F00H;
@@ -1075,8 +1446,8 @@ BEGIN
     bad := FALSE;
     WHILE (rem > 0) & ~stop DO
         chunk := rem;
-        IF chunk > LOW_DATA_LEN THEN
-            chunk := LOW_DATA_LEN
+        IF chunk > LOW_STAGE_LEN THEN
+            chunk := LOW_STAGE_LEN
         END;
         SYSTEM.MOVE(p, lowLin + LOW_DATA, chunk);
         Zero(r);
@@ -1187,7 +1558,7 @@ END Truncate;
    caller's drive and not simply 0. An empty string comes back when the drive
    has no directory to report, the usual case being a drive that is not
    there. *)
-PROCEDURE GetCurDir* (dest, drive: INTEGER);
+PROCEDURE GetCurDir* (dest, max, drive: INTEGER);
 VAR
     r: Registers;
     i: INTEGER;
@@ -1197,7 +1568,21 @@ BEGIN
     (* Two forms of "get current directory", LFN first: AH=7147h and, behind
        it, the older AH=47h for a host that does not carry the LFN services.
        The name is written to DS:ESI in both - there is no register to move -
-       and the second call is only made when the first one fails. *)
+       and the second call is only made when the first one fails.
+
+       max is the room at dest INCLUDING the terminator, and what is written
+       is cut to it.  Nothing the service is given says how much room there
+       is, so a caller that passed a buffer and no length would be one service
+       answer away from a buffer overrun; the copy below is therefore made
+       through the block, whose length is known, rather than by handing DOS
+       the caller's buffer.
+
+       The answer is the path with NO drive letter and NO leading separator,
+       and it is EMPTY for the root of a drive - so a caller that wants an
+       absolute path writes the letter, the colon and a separator first and
+       lets this fill in what follows, which for a root is nothing at all.
+       A drive that is not there answers empty as well, and so does a host
+       that has neither service. *)
     Zero(r);
     r.Flags := WCHR(CARRY);
     r.EAX := 7147H;
@@ -1219,7 +1604,7 @@ BEGIN
     i := 0;
     IF ORD(r.Flags) MOD 2 = 0 THEN
         SYSTEM.GET(lowLin + LOW_NAME + i, c);
-        WHILE (c # 0X) & (i < LOW_NAME_LEN - 1) DO
+        WHILE (c # 0X) & (i < LOW_NAME_LEN - 1) & (i < max - 1) DO
             SYSTEM.PUT(dest + i, c);
             INC(i);
             SYSTEM.GET(lowLin + LOW_NAME + i, c)
@@ -1240,6 +1625,38 @@ BEGIN
     Intr(21H, r);
     d := r.EAX MOD 256
 END GetDrive;
+
+
+(* DriveExists - whether the machine has the drive d, 0 for A:.
+
+   AH=36h is "free space on a drive".  A drive that is not there answers
+   0FFFFH in AX, and - measured under DOSBox-X on 2026-09-26 - asking about a
+   drive does NOT move the default one, so a caller may walk every letter
+   without ending up on another drive.  That is the whole of the test, and the
+   scan is what Dirs.Drives is built from, because DOS has no call that lists
+   its drives: the one that looks like it, AH=0Eh, answers the number of the
+   LAST drive letter on this host (26, for Z:) and not a count, so nothing
+   here uses it.
+
+   A drive whose media is not in the machine answers 0FFFFH too, so a floppy
+   drive with no disk in it reads as not there.  That is the reading that
+   costs a caller least: the alternative is a drive it can offer and cannot
+   read.  The free space numbers AH=36h also returns are ignored - a full
+   disk is not a drive that is missing. *)
+PROCEDURE DriveExists* (d: INTEGER): BOOLEAN;
+VAR
+    r: Registers;
+    ax: INTEGER;
+
+BEGIN
+    Zero(r);
+    r.EAX := 3600H;
+    r.EDX := d + 1;
+    Intr(21H, r);
+    ax := r.EAX MOD 10000H;
+
+    RETURN ax # 0FFFFH
+END DriveExists;
 
 
 (* int 21h AH=2Ch: CH=hour, CL=minute, DH=second, DL=hundredths *)
@@ -1366,15 +1783,351 @@ BEGIN
 END SetFileTime;
 
 
-(* The PE loader answers two int 21h calls that DKRNL32 uses for the same
-   purpose: AX=4B82h returns the handle of the main module in EAX, and
-   AX=4B86h with that handle in EDX returns a flat pointer to the module's
-   file name. Going through them is what keeps this module free of Win32
-   imports while still yielding the real program path: the environment
-   segment of a client's PSP is empty, so the usual DOS route - the name that
-   follows the environment block - is closed here. *)
-PROCEDURE [stdcall] GetModuleName (VAR adr: INTEGER);
+(* The ASCIZ string at off in the block, copied out to adr and terminated
+   there: the block's half of LowNameAt, and bounded the same way twice over -
+   by the field the string lives in and by the room the caller has for it. The
+   field bound is what keeps a missing terminator from running off the end of
+   the find area; the caller's is what keeps this from running off the end of
+   whatever record it was handed.
+
+   adr is an address and not an offset, so the same procedure copies into a
+   caller's record and into the block: lowLin + off is what a copy that stays
+   inside the find area is given. *)
+PROCEDURE LowGrab (off, adr, srcmax, max: INTEGER);
+VAR
+    i: INTEGER;
+    c: CHAR;
+
 BEGIN
+    IF srcmax < max THEN max := srcmax END;
+    i := 0;
+    SYSTEM.GET(lowLin + off + i, c);
+    WHILE (c # 0X) & (i < max - 1) DO
+        SYSTEM.PUT(adr + i, c);
+        INC(i);
+        SYSTEM.GET(lowLin + off + i, c)
+    END;
+    c := 0X;
+    SYSTEM.PUT(adr + i, c)
+END LowGrab;
+
+
+(* A field of the block, for the two DOS structures a walk reads. Both carry
+   their numbers in the order every DOS structure does - low byte first - and
+   the attribute is the low byte of a dword in the LFN block and a byte of its
+   own in the DTA, which is why it is read a byte at a time in both. *)
+PROCEDURE LowByte (off: INTEGER): INTEGER;
+VAR
+    c: CHAR;
+
+BEGIN
+    SYSTEM.GET(lowLin + off, c);
+    RETURN ORD(c)
+END LowByte;
+
+
+PROCEDURE LowWord (off: INTEGER): INTEGER;
+BEGIN
+    RETURN LowByte(off) + LowByte(off + 1) * 100H
+END LowWord;
+
+
+PROCEDURE LowLong (off: INTEGER): INTEGER;
+BEGIN
+    RETURN LowWord(off) + LowWord(off + 2) * 10000H
+END LowLong;
+
+
+(* AH=1Ah, once at the start of a walk: point DOS at the DTA in the find area.
+
+   It is set for both walks and not only for the classic one. The classic walk
+   fills that address as its result and keeps its search state in it between
+   calls, and the LFN walk asks the same classic API for each entry's stamp,
+   whose answer arrives there too. Asking for a stamp before the DTA has been
+   pointed anywhere is the mistake this costs one call to avoid: the answer
+   lands in the program's own default DTA, which the walk never looks at, and
+   every entry comes back with no date. *)
+PROCEDURE FindDta;
+VAR
+    r: Registers;
+
+BEGIN
+    Zero(r);
+    r.EAX := 1A00H;
+    r.EDX := LOW_DTA;
+    Intr(21H, r)
+END FindDta;
+
+
+(* AH=71A1h: end an LFN search. The handle goes in BX and there is nothing to
+   read back. Closing one that is not open is refused rather than fatal -
+   measured under DOSBox-X, a second close answers AX=0006 with the carry set -
+   which is why every caller here asks whether the walk is still open first. *)
+PROCEDURE FindCloseLFN (h: INTEGER);
+VAR
+    r: Registers;
+
+BEGIN
+    Zero(r);
+    r.EAX := 71A1H;
+    r.EBX := h;
+    Intr(21H, r)
+END FindCloseLFN;
+
+
+(* The path a walk is started on, built in the find area: the directory the
+   caller named, a separator when it did not end in one, and *.* - see
+   FIND_ATTR for why the caller's own mask never reaches DOS.
+
+   A directory that already ends in the separator, or in the colon of a drive
+   letter, is not given a second one; an empty name is the current directory
+   and gets no separator either.
+
+   What comes back is where the *.* begins. That offset is what lets an entry's
+   name be written over the mask later on, which is how the stamp below is
+   asked for a path and not for a bare name: AH=4Eh searches the current
+   directory of the current drive unless the mask carries a path of its own, so
+   a walk of anywhere but the current directory would ask about the wrong
+   directory - and find a file of the same name in it, or nothing.
+
+   The name is cut at LOW_PATH_LEN - 20 rather than at the buffer's end, so
+   that even a directory that fills it leaves room for the separator, the mask
+   and an entry's name after them. *)
+PROCEDURE FindPath (dir: INTEGER): INTEGER;
+VAR
+    i, tail: INTEGER;
+    c: CHAR;
+
+BEGIN
+    LowNameAt(dir, LOW_PATH, LOW_PATH_LEN - 20);
+    i := 0;
+    SYSTEM.GET(lowLin + LOW_PATH + i, c);
+    WHILE c # 0X DO
+        INC(i);
+        SYSTEM.GET(lowLin + LOW_PATH + i, c)
+    END;
+    IF i > 0 THEN
+        SYSTEM.GET(lowLin + LOW_PATH + i - 1, c);
+        IF (c # "\") & (c # ":") THEN
+            c := "\";
+            SYSTEM.PUT(lowLin + LOW_PATH + i, c);
+            INC(i)
+        END
+    END;
+    tail := i;
+    c := "*"; SYSTEM.PUT(lowLin + LOW_PATH + i, c); INC(i);
+    c := "."; SYSTEM.PUT(lowLin + LOW_PATH + i, c); INC(i);
+    c := "*"; SYSTEM.PUT(lowLin + LOW_PATH + i, c); INC(i);
+    c := 0X;  SYSTEM.PUT(lowLin + LOW_PATH + i, c);
+    RETURN tail
+END FindPath;
+
+
+(* The last-write stamp of the entry an LFN walk is holding, as the packed local
+   word the rest of this tree uses (Files.DosTime, and every ArchFile's own
+   conversion), or 0 when the call did not answer.
+
+   The LFN block has a FILETIME of its own and it is not used, because it is a
+   UTC instant and DOS has no conversion: measured under DOSBox-X with LFN on,
+   AX=71A7h in two plausible shapes and AX=71A8h all return with the carry
+   clear and convert nothing at all, and AX=71A6h fails with AX=0008. What is
+   used instead is the classic call - AH=4Eh on the entry's own name, whose
+   answer in the DTA is already the packed local word. The name handed over is
+   cAlternateFileName when the block filled that in and cFileName otherwise:
+   they are the same entry, one of them in the form the classic side can match,
+   and the alias is empty exactly when the name is already 8.3.
+
+   A directory has no other source at all. AH=57h accepts a long name when LFN
+   is on but fails on a directory in every form tried, while AH=4Eh answers for
+   all of them - so this one call covers files and directories alike.
+
+   The name is written over the *.* that ends the walk's path, which is what
+   makes it a path: the directory the walk is in, then the entry. It leaves the
+   path buffer alone, and it is measured not to disturb the open LFN search -
+   the classic API keeps its state in the DTA and the LFN walk's is in the
+   handle DOS gave out. *)
+PROCEDURE FindStamp (VAR f: Find): INTEGER;
+VAR
+    r: Registers;
+    dst, t: INTEGER;
+
+BEGIN
+    dst := lowLin + LOW_PATH + f.tail;
+    IF LowByte(LOW_FBLK + FBLK_ALT) # 0 THEN
+        LowGrab(LOW_FBLK + FBLK_ALT, dst, FBLK_ALT_LEN,
+                LOW_PATH_LEN - f.tail)
+    ELSE
+        LowGrab(LOW_FBLK + FBLK_NAME, dst, FBLK_NAME_LEN,
+                LOW_PATH_LEN - f.tail)
+    END;
+    Zero(r);
+    r.EAX := 4E00H;
+    r.ECX := FIND_ATTR;
+    r.EDX := LOW_PATH;
+    Intr(21H, r);
+    IF ORD(r.Flags) MOD 2 # 0 THEN
+        t := 0
+    ELSE
+        t := LowWord(LOW_DTA + DTA_DATE) * 10000H + LowWord(LOW_DTA + DTA_TIME)
+    END;
+
+    RETURN t
+END FindStamp;
+
+
+(* Start a walk of the directory dir, which is ASCIZ and may or may not end in a
+   separator. TRUE when there is an entry to read, FALSE for a directory that is
+   not there and for one that is empty - the two are the same answer, as they
+   are to any caller of this.
+
+   The LFN walk is tried first and judged by the carry flag, which is set before
+   the call: a host without the LFN subfunctions answers 714Eh with 7100h and
+   the carry set, and the classic walk behind it is the same two calls the file
+   services above fall back to - AH=1Ah once, then AH=4Eh - with an 8.3 name in
+   the DTA instead of a long one in the block.
+
+   The entry that was found is left where it was delivered and is read by the
+   FindNext that follows, not here: both walks deliver an entry per call and
+   both overwrite the previous one, so reading and advancing are one step and
+   belong together.
+
+   The mask goes in DS:DX, not in DS:SI, which is the one thing about this call
+   that has to be measured rather than read off a specification - the LFN find
+   is documented with an SI form and DOSBox-X does not answer that one. A mask
+   at DS:SI is not seen at all: the call reads whatever is at DS:DX, so with DX
+   left at zero it reads the empty string at the block's first byte and answers
+   AX=0012h, "no more files", which reads exactly like a directory with nothing
+   in it. The SI form is the shape this was first written in, and the symptom
+   was a walk that silently fell through to the classic 8.3 leg for every
+   directory on every run. *)
+PROCEDURE FindFirst* (dir: INTEGER; VAR f: Find): BOOLEAN;
+VAR
+    r: Registers;
+
+BEGIN
+    f.tail := FindPath(dir);
+    f.handle := FIND_NONE;
+    FindDta;
+    Zero(r);
+    r.Flags := WCHR(CARRY);
+    r.EAX := 714EH;
+    r.ECX := FIND_ATTR;
+    r.EDX := LOW_PATH;                  (* DS:DX, the mask - not DS:SI *)
+    r.EDI := LOW_FBLK;                  (* ES:DI, the 323 byte block *)
+    Intr(21H, r);
+    IF ORD(r.Flags) MOD 2 = 0 THEN
+        f.handle := r.EAX MOD 10000H
+    ELSE
+        Zero(r);
+        r.EAX := 4E00H;
+        r.ECX := FIND_ATTR;
+        r.EDX := LOW_PATH;
+        Intr(21H, r);
+        IF ORD(r.Flags) MOD 2 = 0 THEN f.handle := FIND_CLASSIC END
+    END;
+
+    RETURN f.handle # FIND_NONE
+END FindFirst;
+
+
+(* The entry the last call delivered, and then the walk is moved on.
+
+   Reading before advancing is not a choice - each of the calls that finds the
+   next entry writes over the one before it - and it is why the name, the
+   attribute, the size and the stamp are all taken before the advance below.
+
+   When the walk runs out the LFN search is closed here rather than left for
+   FindClose, because a caller that reads every entry and stops would otherwise
+   leave a DOS handle open for the life of the program. FindClose then finds a
+   handle of FIND_NONE and leaves it alone, so the two do not close twice.
+
+   The classic walk needs no such care: its state is the DTA, which the block
+   owns anyway. *)
+PROCEDURE FindNext* (VAR f: Find; namadr, namemax: INTEGER;
+                     VAR attr, size, time: INTEGER): BOOLEAN;
+VAR
+    r: Registers;
+    ok: BOOLEAN;
+
+BEGIN
+    ok := FALSE;
+    attr := 0; size := 0; time := 0;
+    IF f.handle >= 0 THEN
+        ok := TRUE;
+        LowGrab(LOW_FBLK + FBLK_NAME, namadr, FBLK_NAME_LEN, namemax);
+        attr := LowByte(LOW_FBLK + FBLK_ATTR);
+        size := LowLong(LOW_FBLK + FBLK_SIZE);
+        time := FindStamp(f);
+        Zero(r);
+        r.Flags := WCHR(CARRY);
+        r.EAX := 714FH;
+        r.EBX := f.handle;              (* the handle goes back in BX *)
+        r.EDI := LOW_FBLK;
+        Intr(21H, r);
+        IF ORD(r.Flags) MOD 2 # 0 THEN
+            FindCloseLFN(f.handle);
+            f.handle := FIND_NONE
+        END
+    ELSIF f.handle = FIND_CLASSIC THEN
+        ok := TRUE;
+        LowGrab(LOW_DTA + DTA_NAME, namadr, DTA_NAME_LEN, namemax);
+        attr := LowByte(LOW_DTA + DTA_ATTR);
+        size := LowLong(LOW_DTA + DTA_SIZE);
+        time := LowWord(LOW_DTA + DTA_DATE) * 10000H +
+                LowWord(LOW_DTA + DTA_TIME);
+        Zero(r);
+        r.EAX := 4F00H;
+        r.ECX := FIND_ATTR;
+        r.EDX := LOW_PATH;
+        Intr(21H, r);
+        IF ORD(r.Flags) MOD 2 # 0 THEN f.handle := FIND_NONE END
+    END;
+
+    RETURN ok
+END FindNext;
+
+
+(* End a walk. Idempotent: one that is already over - because it was read to the
+   end, or because this was called twice, or because it never started - is left
+   alone, and the classic walk needs nothing at all. *)
+PROCEDURE FindClose* (VAR f: Find);
+BEGIN
+    IF f.handle >= 0 THEN FindCloseLFN(f.handle) END;
+    f.handle := FIND_NONE
+END FindClose;
+
+
+(* Where the name of this program's file begins, or 0 when it cannot be had.
+
+   On the DPMI targets the PE loader answers two int 21h calls that DKRNL32
+   uses for the same purpose: AX=4B82h returns the handle of the main module in
+   EAX, and AX=4B86h with that handle in EDX returns a flat pointer to the
+   module's file name. Going through them is what keeps this module free of
+   Win32 imports while still yielding the real program path: the environment
+   segment of a client's PSP is empty, so the usual DOS route - the name that
+   follows the environment block - is closed here.
+
+   Adam needs neither call and has neither: the extender reported the path when
+   the program started (AX=EE02h, in ECX), already in the form this program can
+   read it in.
+
+   Only the HX loader answers 4B82h and 4B86h. Both stubs of the third target
+   carry a WDOSX kernel and WDOSX has neither call; it does not answer the
+   DOS32 AX=EE02h either, even though the same kernel emulates the rest of the
+   DOS32 API for an Adam image. Measured on a dpmi32le program: AX=4B82h leaves
+   EAX at 4B82h with the carry set, and AX=EE02h does the same and leaves ECX
+   as whatever it held before - so asking it would hand back a garbage pointer
+   for the caller to walk. There is nothing else to ask: the environment
+   segment is empty here, and an LE image carries its own module *name* but
+   never the directory it was loaded from. So on this target ProgPath reports
+   -1, and a lib\ lookup stays relative to the current directory. *)
+PROCEDURE [stdcall] GetModuleName (VAR adr: INTEGER);
+$IF (DOS32)
+BEGIN
+    adr := pathNear
+$ELSE
+BEGIN
+    adr := 0;
     SYSTEM.CODE(
     060H,                               (* pushad *)
     031H, 0D2H,                         (* xor edx,edx *)
@@ -1391,6 +2144,7 @@ BEGIN
     089H, 002H,                         (* mov [edx],eax *)
     061H                                (* popad *)
     )
+$END
 END GetModuleName;
 
 
@@ -1429,8 +2183,22 @@ END ProgPath;
    is not zero. This is also why the call is written out here rather than made
    through Intr: the loader answers it in protected mode, where the name is a
    flat address and the reflection of a real mode interrupt has nothing to do
-   with it. *)
+   with it.
+
+   None of the four below has an Adam branch that reaches anything: DOS32 has
+   no loader - it loads one program and that is the one already running - and
+   the int 21h entries the loader answers belong to the DPMI extender's Dynamic
+   Link Module. Asking for them there would not fail quietly either: on Adam
+   they are reflected into real mode, where DOS sees them as its own EXEC and
+   resource calls and acts on them, which is the last thing a client that
+   wanted a DLL handle should cause. So each answers the "no module" its caller
+   already has to handle, and a program that loads nothing portable works on
+   both. *)
 PROCEDURE [stdcall] LoadModule (nameadr: INTEGER; VAR h: INTEGER);
+$IF (DOS32)
+BEGIN
+    h := 0
+$ELSE
 BEGIN
     SYSTEM.CODE(
     060H,                               (* pushad *)
@@ -1448,6 +2216,7 @@ BEGIN
     089H, 002H,                         (* mov [edx],eax *)
     061H                                (* popad *)
     )
+$END
 END LoadModule;
 
 
@@ -1456,6 +2225,10 @@ END LoadModule;
    this program's image or heap - those live far above 64K - so only the name
    form is reachable from here. *)
 PROCEDURE [stdcall] GetProcAdr (h, nameadr: INTEGER; VAR adr: INTEGER);
+$IF (DOS32)
+BEGIN
+    adr := 0
+$ELSE
 BEGIN
     SYSTEM.CODE(
     060H,                               (* pushad *)
@@ -1470,6 +2243,7 @@ BEGIN
     089H, 002H,                         (* mov [edx],eax *)
     061H                                (* popad *)
     )
+$END
 END GetProcAdr;
 
 
@@ -1477,6 +2251,10 @@ END GetProcAdr;
    EDX is zero, for the module the current task was started from: the EXE. A
    DLL asks for it to reach what the EXE exports. *)
 PROCEDURE [stdcall] GetMainModule (VAR h: INTEGER);
+$IF (DOS32)
+BEGIN
+    h := 0
+$ELSE
 BEGIN
     SYSTEM.CODE(
     060H,                               (* pushad *)
@@ -1487,6 +2265,7 @@ BEGIN
     089H, 002H,                         (* mov [edx],eax *)
     061H                                (* popad *)
     )
+$END
 END GetMainModule;
 
 
@@ -1494,6 +2273,10 @@ END GetMainModule;
    module list; EAX is not part of its answer, so it is turned into one here
    before popad puts the saved registers back. *)
 PROCEDURE [stdcall] FreeModule (h: INTEGER; VAR ok: INTEGER);
+$IF (DOS32)
+BEGIN
+    ok := 0
+$ELSE
 BEGIN
     SYSTEM.CODE(
     060H,                               (* pushad *)
@@ -1506,6 +2289,7 @@ BEGIN
     089H, 002H,                         (* mov [edx],eax *)
     061H                                (* popad *)
     )
+$END
 END FreeModule;
 
 
@@ -1567,23 +2351,41 @@ BEGIN
 END Free;
 
 
-(* The linear base of this program's PSP, or 0 when it cannot be established.
+(* The base of this program's PSP, as this program can address it, or 0 when it
+   cannot be established. The PSP opens with a jump and its fields are read at
+   fixed offsets from whatever this returns, so the only thing that matters
+   about the two shapes it takes - a linear base on one target group and an
+   offset into the program's own segment on the other - is that a field's
+   address is this plus the field's offset.
 
-   int 21h AH=51h answers with the PSP, and through Intr the answer is its real
-   mode segment in BX - because what a reflected call returns is what the real
-   mode handler left, and a real mode handler has no selector to name a
-   segment with. That suits this runtime: the block runs with the flat
-   relation lowLin = lowSeg * 16 (see the module header), so a segment is its
-   own linear base times 16, and no DPMI selector translation is needed to
-   read the PSP. Measured under DOSBox-X with the tail of a real command line:
-   the segment answers, and the byte at segment * 16 + 80H is the length of the
-   tail this program was started with.
+   Two targets reach it two ways, because what DOS calls the current PSP is not
+   this program under either of the DOS32 extenders: a program loaded by an
+   extender is DOS's second program, the first being the extender's own stub,
+   and a real mode service answers about the first. On the DPMI targets the PSP
+   is still the right one - the host keeps DOS's idea of the current program in
+   step - and int 21h AH=51h answers with it. Through Intr the answer is a real
+   mode segment in BX, because what a reflected call returns is what the real
+   mode handler left and a real mode handler has no selector to name a segment
+   with; that suits this runtime, where the block runs with the flat relation
+   lowLin = lowSeg * 16 (see the module header), so a segment is its own linear
+   base times 16 and no selector translation is needed. Measured under DOSBox-X
+   with the tail of a real command line: the segment answers, and the byte at
+   segment * 16 + 80H is the length of the tail this program was started with.
+   The same call reaches that PSP as int 21h AH=62h, so either service can be
+   used; AH=51h is the one DOS documents.
 
-   A segment of 0 is not a PSP and is reported as no answer at all - a base of
-   0 would otherwise read as "the PSP is at address 0", which is the real mode
-   interrupt table. The same call reaches the same PSP as int 21h AH=62h, so
-   either service can be used here; AH=51h is the one DOS documents. *)
+   On Adam the answer comes from the extender instead (AX=EE02h), which is the
+   only source that knows about the program DOS32 loaded rather than the stub
+   DOS ran.
+
+   A base of 0 is not a PSP and is reported as no answer at all - a base of 0
+   would otherwise read as "the PSP is at address 0", which is the real mode
+   interrupt table. *)
 PROCEDURE PspBase (VAR base: INTEGER);
+$IF (DOS32)
+BEGIN
+    IF pspNear = 0 THEN base := 0 ELSE base := pspNear END
+$ELSE
 VAR
     r: Registers;
 
@@ -1592,6 +2394,7 @@ BEGIN
     r.EAX := 5100H;                     (* AH=51h: the current PSP *)
     Intr(21H, r);
     IF r.EBX = 0 THEN base := 0 ELSE base := r.EBX * 16 END
+$END
 END PspBase;
 
 
@@ -1628,18 +2431,30 @@ BEGIN
 END CmdLine;
 
 
-(* The linear address of the DOS environment block, or 0 when there is none.
+(* The address of the DOS environment block, as this program can address it, or
+   0 when there is none.
 
    The PSP opens with a jump, and the word at offset 2Ch of it is the segment
    the environment lives in.  That the offset is a fixed one is the whole of
    the agreement here - it is older than any other part of the PSP and DOS
-   itself never moved it - so the block is found through PspBase and the flat
-   relation, exactly as the command tail is.
+   itself never moved it - so the block is found through PspBase and, on the
+   DPMI targets, the flat relation, exactly as the command tail is.
+
+   On Adam the extender reports the environment at once (AX=EE02h, in EDI) and
+   that is the address to use: the PSP here is the one DOS32 built rather than
+   the one DOS built, and the word at 2Ch of it names the environment by a real
+   mode segment, which is a form this program would have to translate. The
+   answer from EE02h is already the form it wants, so what PspBase and the
+   field would together spell out is read straight off the call instead.
 
    A segment of 0 means no block: the environment is a run of NUL terminated
-   NAME=VALUE strings ended by a further NUL, and a block at linear address 0
-   would be the real mode interrupt table read as text. *)
+   NAME=VALUE strings ended by a further NUL, and a block at address 0 would be
+   the real mode interrupt table read as text. *)
 PROCEDURE EnvPtr* (): INTEGER;
+$IF (DOS32)
+BEGIN
+    RETURN envNear
+$ELSE
 VAR
     base, seg: INTEGER;
     w: WCHAR;
@@ -1656,6 +2471,7 @@ BEGIN
     END;
 
     RETURN seg * 16
+$END
 END EnvPtr;
 
 
@@ -1670,7 +2486,7 @@ VAR
 
 BEGIN
     msg := "DPMI32: no DOS memory for the interrupt block";
-    p := VID + 2 * 80 * 10;             (* the eleventh line of the screen *)
+    p := VID + 2 * 80 * 10 - progBase;  (* the eleventh line of the screen *)
     i := 0;
     WHILE msg[i] # 0X DO
         SYSTEM.PUT(p, WCHR(DEF_ATTR * 100H + ORD(msg[i])));
@@ -1691,16 +2507,59 @@ END NoBlock;
    program it is refused to cannot call DOS at all, which is what NoBlock says
    out loud before stopping. *)
 PROCEDURE GetBlock;
+$IF (DOS32)
+VAR
+    r: Registers;
+
+BEGIN
+    (* There is nothing to allocate here: the extender lent the program its
+       buffer when it started it, and reported it - and everything else a
+       program needs to know about itself - in one call at that point. 8 KB at
+       16 * AX is all the DOS memory this layer gets, and it is enough for what
+       the buffer is for, because the call structure does not live in it (see
+       the layout constants and Intr).
+
+       The three near pointers are kept exactly as they come. They are offsets
+       from the start of the program, this program's own selector is based
+       there, so they address what they name as they stand and every field
+       behind them is an ordinary SYSTEM.GET; that is also why lowLin is the
+       buffer's linear address minus the base rather than the address itself.
+
+       progBase is set before the buffer is tested: everything outside the
+       program's own image - the BIOS data area and video memory that NoBlock
+       writes into - is addressed as `linear - progBase`, and the one path that
+       has no DOS call to fall back on is the one that needs the base most. *)
+    Zero(r);
+    r.EAX := 0EE02H;
+    Int31(SYSTEM.ADR(r));
+    lowSeg := r.EAX MOD 10000H;
+    progBase := r.EBX;
+    pspNear := r.ESI;
+    envNear := r.EDI;
+    pathNear := r.ECX;
+    IF lowSeg = 0 THEN
+        NoBlock                     (* says so and stops; it does not return *)
+    END;
+    lowLin := lowSeg * 16 - progBase;
+    (* The structure's address is what the call needs and what the pointer to
+       it is made from, and SYSTEM.VAL takes a designator rather than an
+       expression, so it is read once into rmAdr and the pointer is that. *)
+    rmAdr := SYSTEM.ADR(rmRec);
+    rm := SYSTEM.VAL(CallP, rmAdr)
+$ELSE
 VAR
     sel, err: INTEGER;
 
 BEGIN
+    progBase := 0;                  (* this client runs at linear 0 *)
     AllocDOS9(LOW_BLOCK, lowSeg, sel, err);
     IF lowSeg = 0 THEN
         NoBlock                     (* says so and stops; it does not return *)
     END;
     lowLin := lowSeg * 16;          (* flat model: the linear base *)
-    rm := SYSTEM.VAL(CallP, lowLin) (* the call structure, at LOW_RMCS = 0 *)
+    rm := SYSTEM.VAL(CallP, lowLin); (* the call structure, at LOW_RMCS = 0 *)
+    rmAdr := lowLin + LOW_RMCS
+$END
 END GetBlock;
 
 

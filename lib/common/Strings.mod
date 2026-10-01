@@ -95,7 +95,7 @@ END Length;
 (* Copy - copy src into dst and terminate it.
    Parameters: src - the source string; dst - receives it.
    Result: TRUE when all of src fitted. *)
-PROCEDURE Copy* (src: ARRAY OF CHAR; VAR dst: ARRAY OF CHAR): BOOLEAN;
+PROCEDURE Copy* (src: ARRAY OF CHAR; VAR dst: ARRAY OF CHAR);
 VAR
     i, room: INTEGER;
     ok: BOOLEAN;
@@ -116,7 +116,7 @@ BEGIN
         ok := src[i] = 0X
     END
 
-    RETURN ok
+(*    RETURN ok *)
 END Copy;
 
 
@@ -754,18 +754,24 @@ END HashStr;
 
 $IF (BITS_32 | BITS_64)
 (* Utf8To16 - decode UTF-8 text into UTF-16 code units.
-   Well formed sequences of up to three bytes are decoded; a byte that
-   starts no sequence is passed through as its own code unit, and a
-   truncated sequence at the end of src simply stops the decode.  The
-   result is terminated with WCHR(0) when there is room for it.
+   Every length the encoding defines is decoded, including the four-byte
+   sequences, which become the pair of surrogates UTF-16 stands them for.  A
+   sequence that is not well formed - a byte that leads nowhere, a truncated
+   sequence at the end of src, a continuation byte that is not one, a value
+   the encoding could have written shorter, a surrogate half, or a value past
+   U+10FFFF - is not guessed at: the byte is passed through as its own code
+   unit and the decode carries on with the next one.  That is what keeps a
+   half-decoded buffer from turning into text nobody typed, which is what a
+   silent substitution would do.  The result is terminated with WCHR(0) when
+   there is room for it.
    Parameters: src - the UTF-8 text; dst - receives the code units.
    Result: the number of code units written, not counting the terminator.
    WCHAR only exists when the target is 32 bits or more, which is why this
    procedure is compiled conditionally. *)
 PROCEDURE Utf8To16* (src: ARRAY OF CHAR; VAR dst: ARRAY OF WCHAR): INTEGER;
 VAR
-    i, j, u, srclen, dstlen: INTEGER;
-    c: CHAR;
+    i, j, u, srclen, dstlen, nb, k, b: INTEGER;
+    ok: BOOLEAN;
 
 BEGIN
     srclen := LEN(src);
@@ -773,41 +779,141 @@ BEGIN
     i := 0;
     j := 0;
     WHILE (i < srclen) & (j < dstlen) & (src[i] # 0X) DO
-        c := src[i];
-        CASE c OF
-        |00X..7FX:
-            u := ORD(c)
-
-        |0C1X..0DFX:
-            u := (ORD(c) - 0C0H) * 64;
-            IF i + 1 < srclen THEN
-                INC(i);
-                INC(u, ORD(src[i]) MOD 64)
-            END
-
-        |0E1X..0EFX:
-            u := (ORD(c) - 0E0H) * 4096;
-            IF i + 1 < srclen THEN
-                INC(i);
-                INC(u, (ORD(src[i]) MOD 64) * 64)
-            END;
-            IF i + 1 < srclen THEN
-                INC(i);
-                INC(u, ORD(src[i]) MOD 64)
-            END
-
+        b := ORD(src[i]);
+        u := 0;
+        ok := TRUE;
+        IF b < 80H THEN
+            nb := 0; u := b
+        ELSIF (b >= 0C2H) & (b <= 0DFH) THEN
+            nb := 1; u := b - 0C0H
+        ELSIF (b >= 0E0H) & (b <= 0EFH) THEN
+            nb := 2; u := b - 0E0H
+        ELSIF (b >= 0F0H) & (b <= 0F4H) THEN
+            nb := 3; u := b - 0F0H
         ELSE
+            nb := 0; ok := FALSE            (* a continuation byte, or C0/C1 *)
         END;
-        INC(i);
-        dst[j] := WCHR(u);
-        INC(j)
+        k := 0;
+        WHILE ok & (k < nb) DO
+            IF i + 1 + k >= srclen THEN
+                ok := FALSE                 (* truncated at the end of src *)
+            ELSE
+                b := ORD(src[i + 1 + k]);
+                IF (b < 80H) OR (b > 0BFH) THEN
+                    ok := FALSE
+                ELSE
+                    u := u * 64 + b MOD 64;
+                    INC(k)
+                END
+            END
+        END;
+        (* The encoding's own consistency rules, which the byte count alone
+           does not enforce: a value that fits a shorter sequence was written
+           overlong, and no sequence may carry a surrogate half or a value
+           past the end of Unicode. *)
+        IF ok THEN
+            IF ((nb = 1) & (u < 80H)) OR ((nb = 2) & (u < 800H)) OR
+               ((nb = 3) & (u < 10000H)) OR
+               ((u >= 0D800H) & (u <= 0DFFH)) OR (u > 10FFFFH) THEN
+                ok := FALSE
+            END
+        END;
+        IF ok THEN
+            i := i + 1 + nb
+        ELSE
+            u := ORD(src[i]);               (* passed through as itself *)
+            INC(i)
+        END;
+        IF u >= 10000H THEN
+            (* the pair of surrogates UTF-16 represents it with *)
+            IF j + 1 < dstlen THEN
+                u := u - 10000H;
+                dst[j] := WCHR(0D800H + u DIV 400H);
+                dst[j + 1] := WCHR(0DC00H + u MOD 400H);
+                j := j + 2
+            ELSE
+                j := dstlen                 (* no room for both halves *)
+            END
+        ELSE
+            dst[j] := WCHR(u);
+            INC(j)
+        END
     END;
     IF j < dstlen THEN
         dst[j] := WCHR(0)
-    END
+    END;
 
     RETURN j
 END Utf8To16;
+
+
+(* Utf16To8 - the other direction: UTF-16 code units written as UTF-8.
+   A surrogate pair is joined into the one code point it stands for.  A half
+   that was never paired stands for no code point at all, and is written as
+   U+FFFD rather than encoded as itself, so that the text which comes out is
+   always well formed UTF-8 - which is what every reader of these bytes
+   assumes - and the one character that was lost is the one that could not be
+   written.  src ends at WCHR(0) or at its own length, whichever comes first,
+   and dst is terminated when there is room.
+   Parameters: src - the UTF-16 text; dst - receives the UTF-8.
+   Result: the number of bytes written, not counting the terminator. *)
+PROCEDURE Utf16To8* (src: ARRAY OF WCHAR; VAR dst: ARRAY OF CHAR): INTEGER;
+VAR
+    i, j, u, srclen, dstlen, nb: INTEGER;
+
+BEGIN
+    srclen := LEN(src);
+    dstlen := LEN(dst);
+    i := 0;
+    j := 0;
+    WHILE (i < srclen) & (j < dstlen - 1) & (src[i] # WCHR(0)) DO
+        u := ORD(src[i]);
+        INC(i);
+        IF (u >= 0D800H) & (u <= 0DBFFH) &
+           (i < srclen) & (src[i] # WCHR(0)) &
+           (ORD(src[i]) >= 0DC00H) & (ORD(src[i]) <= 0DFFFH) THEN
+            u := (u - 0D800H) * 400H + (ORD(src[i]) - 0DC00H) + 10000H;
+            INC(i)
+        END;
+        IF (u >= 0D800H) & (u <= 0DFFH) THEN
+            u := 0FFFDH                      (* half of a pair that never was *)
+        END;
+        IF u < 80H THEN
+            nb := 1
+        ELSIF u < 800H THEN
+            nb := 2
+        ELSIF u < 10000H THEN
+            nb := 3
+        ELSE
+            nb := 4
+        END;
+        IF j + nb > dstlen - 1 THEN
+            j := dstlen                      (* no room for this character *)
+        ELSE
+            IF nb = 1 THEN
+                dst[j] := CHR(u)
+            ELSIF nb = 2 THEN
+                dst[j] := CHR(0C0H + u DIV 40H);
+                dst[j + 1] := CHR(80H + u MOD 40H)
+            ELSIF nb = 3 THEN
+                dst[j] := CHR(0E0H + u DIV 1000H);
+                dst[j + 1] := CHR(80H + u DIV 40H MOD 40H);
+                dst[j + 2] := CHR(80H + u MOD 40H)
+            ELSE
+                dst[j] := CHR(0F0H + u DIV 40000H);
+                dst[j + 1] := CHR(80H + u DIV 1000H MOD 40H);
+                dst[j + 2] := CHR(80H + u DIV 40H MOD 40H);
+                dst[j + 3] := CHR(80H + u MOD 40H)
+            END;
+            j := j + nb
+        END
+    END;
+    IF j < dstlen THEN
+        dst[j] := 0X
+    END;
+
+    RETURN j
+END Utf16To8;
 $END
 
 

@@ -31,6 +31,7 @@ CONST
     DPMI32DLL*    = 15;
     DPMI32LE*        = 16;
     MacOS64*      = 17;
+    DPMI32ADAM*   = 18;
 
     cpuI386P* = 0; cpuAMD64* = 1; cpuMSP430* = 2; cpuTHUMB* = 3;
     cpuRVM32I* = 4; cpuRVM64I* = 5;
@@ -61,7 +62,7 @@ TYPE
 
 VAR
 
-    Targets*: ARRAY 18 OF TARGET;
+    Targets*: ARRAY 19 OF TARGET;
 
     CPUs: ARRAY 6 OF
         RECORD
@@ -110,7 +111,7 @@ BEGIN
         LibDir := Targets[i].LibDir;
         FileExt := Targets[i].FileExt;
 
-        Import := (OS IN {osWIN32, osWIN64, osDPMI32}) & ~(target IN {DPMI32LE});
+        Import := (OS IN {osWIN32, osWIN64, osDPMI32}) & ~(target IN {DPMI32LE, DPMI32ADAM});
         Dispose := ~(target IN noDISPOSE);
         RTL := ~(target IN noRTL);
         Dll := target IN {Linux32SO, Linux64SO, Win32DLL, Win64DLL, DPMI32DLL};
@@ -156,5 +157,6 @@ BEGIN
     Enter( DPMI32PE,      cpuI386P,   8,  osDPMI32,   "dpmi32pe",    "dpmi32",    ".exe");
     Enter( DPMI32DLL,     cpuI386P,   8,  osDPMI32,   "dpmi32dll",   "dpmi32",    ".dll");
     Enter( DPMI32LE,         cpuI386P,   8,  osDPMI32,   "dpmi32le",       "dpmi32",    ".exe");
+    Enter( DPMI32ADAM,    cpuI386P,   8,  osDPMI32,   "dpmi32adam",   "dpmi32",    ".exe");
     Enter( MacOS64,       cpuAMD64,   8,  osMACOS64,  "macos64",     "macOS",     "");
 END TARGETS.

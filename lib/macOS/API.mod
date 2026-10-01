@@ -70,6 +70,12 @@ VAR
     getcwd*: PROCEDURE [systemv] (buf, size: INTEGER): INTEGER;
     cGetTimeOfDay: PROCEDURE [systemv] (tv, tz: INTEGER): INTEGER;
     cClockGetTime: PROCEDURE [systemv] (clock, ts: INTEGER): INTEGER;
+    (* opendir and readdir answer with a pointer, and a pointer must not be
+       put through IntResult: that narrows a C int to 32 bits, which would
+       cut a 64-bit address in half.  They are wrapped raw for that reason. *)
+    cOpendir: PROCEDURE [systemv] (name: INTEGER): INTEGER;
+    cReaddir: PROCEDURE [systemv] (dirp: INTEGER): INTEGER;
+    cClosedir: PROCEDURE [systemv] (dirp: INTEGER): INTEGER;
 
     fini: SOFINI;
     trap*: Trap;
@@ -193,6 +199,15 @@ BEGIN RETURN IntResult(cGetTimeOfDay(tv, 0)) END GetTimeOfDay;
 PROCEDURE ClockGetTime*(clock, ts: INTEGER): INTEGER;
 BEGIN RETURN IntResult(cClockGetTime(clock, ts)) END ClockGetTime;
 
+PROCEDURE OpenDir*(name: INTEGER): INTEGER;
+BEGIN RETURN cOpendir(name) END OpenDir;
+
+PROCEDURE ReadDir*(dirp: INTEGER): INTEGER;
+BEGIN RETURN cReaddir(dirp) END ReadDir;
+
+PROCEDURE CloseDir*(dirp: INTEGER): INTEGER;
+BEGIN RETURN IntResult(cClosedir(dirp)) END CloseDir;
+
 PROCEDURE _NEW* (size: INTEGER): INTEGER;
 VAR res, pos, stop: INTEGER;
 BEGIN
@@ -296,7 +311,10 @@ BEGIN
     GetSym("utimes", SYSTEM.ADR(cUtimes));
     GetSym("getcwd", SYSTEM.ADR(getcwd));
     GetSym("gettimeofday", SYSTEM.ADR(cGetTimeOfDay));
-    GetSym("clock_gettime", SYSTEM.ADR(cClockGetTime))
+    GetSym("clock_gettime", SYSTEM.ADR(cClockGetTime));
+    GetSym("opendir",  SYSTEM.ADR(cOpendir));
+    GetSym("readdir",  SYSTEM.ADR(cReaddir));
+    GetSym("closedir", SYSTEM.ADR(cClosedir))
 END init;
 
 

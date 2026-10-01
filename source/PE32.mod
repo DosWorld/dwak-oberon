@@ -610,6 +610,7 @@ VAR
 
 BEGIN
     stub := LoadStub(StubPath);
+
     exp := dll OR (LISTS.count(program.exp_list) > 0);
 
     IF (fa = 512) OR (fa = 1024) OR (fa = 2048) OR (fa = 4096) THEN

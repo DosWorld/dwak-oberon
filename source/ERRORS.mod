@@ -207,6 +207,15 @@ BEGIN
 END FileNotFound;
 
 
+(* A stub the compiler cannot use is worth naming, and worth saying why. The
+   generic writing error names neither, and it sends the reader to the output
+   path, which is not where the fault is. *)
+PROCEDURE BadStub* (Path, why: ARRAY OF CHAR);
+BEGIN
+    Error5("bad stub ", Path, ": ", why, "")
+END BadStub;
+
+
 PROCEDURE Error* (n: INTEGER);
 BEGIN
     CASE n OF
@@ -218,7 +227,7 @@ BEGIN
     |206: Error1("bad parameter <target>")
     |207: Error3('inputfile name extension must be "', UTILS.FILE_EXT, '"')
     |208: Error1("not enough RAM")
-    |209: Error1("unsupported LE relocation or DLL import")
+    |209: Error1("unsupported relocation or DLL import")
     END
 END Error;
 

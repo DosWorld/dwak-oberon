@@ -109,6 +109,32 @@ TYPE
 
     END;
 
+    (* The wide form of the same record, and a record of its own rather than a
+       widened TWin32FindData: FindFirstFileW writes WCHAR arrays all the way
+       down, so the two layouts differ from the first name onwards and sharing
+       one of them would put the name in the wrong place.  The three fields
+       past cAlternateFileName are not part of the Win32 record and are here
+       for the same reason they are in the narrow one - the buffer an API
+       writes is the caller's, and a little room past what it writes costs
+       nothing. *)
+    TWin32FindDataW* = RECORD
+
+        dwFileAttributes*:    SYSTEM.CARD32;
+        ftCreationTime*:      TFileTime;
+        ftLastAccessTime*:    TFileTime;
+        ftLastWriteTime*:     TFileTime;
+        nFileSizeHigh*:       SYSTEM.CARD32;
+        nFileSizeLow*:        SYSTEM.CARD32;
+        dwReserved0*:         SYSTEM.CARD32;
+        dwReserved1*:         SYSTEM.CARD32;
+        cFileName*:           ARRAY 260 OF WCHAR;
+        cAlternateFileName*:  ARRAY 14 OF WCHAR;
+        dwFileType*:          SYSTEM.CARD32;
+        dwCreatorType*:       SYSTEM.CARD32;
+        wFinderFlags*:        WCHAR
+
+    END;
+
     OFSTRUCT* = RECORD
 
         cBytes*:      BYTE;
@@ -177,17 +203,46 @@ PROCEDURE [windows-, KERNEL, ""] GetLocalTime* (T: TSystemTime);
 
 PROCEDURE [windows-, KERNEL, ""] RemoveDirectoryA* (lpPathName: INTEGER): INTEGER;
 
+PROCEDURE [windows-, KERNEL, ""] RemoveDirectoryW* (lpPathName: INTEGER): INTEGER;
+
+PROCEDURE [windows-, KERNEL, ""] GetCurrentDirectoryA* (nBufferLength: INTEGER; lpBuffer: INTEGER): INTEGER;
+
+(* The same, in WCHARs - nBufferLength counts them, and so does the answer. *)
+PROCEDURE [windows-, KERNEL, ""] GetCurrentDirectoryW* (nBufferLength: INTEGER; lpBuffer: INTEGER): INTEGER;
+
+(* GetLogicalDrives - one bit per drive letter, bit 0 for A:, so that a test
+   reads `i IN WinAPI.GetLogicalDrives()`.  A bit that is clear is a drive
+   that is not there; the call itself has no failure to report. *)
+PROCEDURE [windows-, KERNEL, ""] GetLogicalDrives* (): SET;
+
 PROCEDURE [windows-, KERNEL, ""] GetFileAttributesA* (lpPathName: INTEGER): SET;
+
+PROCEDURE [windows-, KERNEL, ""] GetFileAttributesW* (lpPathName: INTEGER): SET;
 
 PROCEDURE [windows-, KERNEL, ""] CreateDirectoryA* (lpPathName: INTEGER; lpSecurityAttributes: PSecurityAttributes): INTEGER;
 
+PROCEDURE [windows-, KERNEL, ""] CreateDirectoryW* (lpPathName: INTEGER; lpSecurityAttributes: PSecurityAttributes): INTEGER;
+
 PROCEDURE [windows-, KERNEL, ""] FindFirstFileA* (lpFileName: INTEGER; lpFindFileData: TWin32FindData): INTEGER;
 
+PROCEDURE [windows-, KERNEL, ""] FindNextFileA* (hFindFile: INTEGER; lpFindFileData: TWin32FindData): INTEGER;
+
+PROCEDURE [windows-, KERNEL, ""] FindFirstFileW* (lpFileName: INTEGER; lpFindFileData: TWin32FindDataW): INTEGER;
+
+PROCEDURE [windows-, KERNEL, ""] FindNextFileW* (hFindFile: INTEGER; lpFindFileData: TWin32FindDataW): INTEGER;
+
 PROCEDURE [windows-, KERNEL, ""] DeleteFileA* (lpFileName: INTEGER): INTEGER;
+
+PROCEDURE [windows-, KERNEL, ""] DeleteFileW* (lpFileName: INTEGER): INTEGER;
 
 PROCEDURE [windows-, KERNEL, ""] FindClose* (hFindFile: INTEGER): INTEGER;
 
 PROCEDURE [windows-, KERNEL, ""] CreateFileA* (
+        lpFileName, dwDesiredAccess, dwShareMode: INTEGER;
+        lpSecurityAttributes: PSecurityAttributes;
+        dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile: INTEGER): INTEGER;
+
+PROCEDURE [windows-, KERNEL, ""] CreateFileW* (
         lpFileName, dwDesiredAccess, dwShareMode: INTEGER;
         lpSecurityAttributes: PSecurityAttributes;
         dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile: INTEGER): INTEGER;
@@ -197,6 +252,8 @@ PROCEDURE [windows-, KERNEL, ""] OpenFile* (lpFileName: INTEGER; lpReOpenBuff: O
 PROCEDURE [windows-, KERNEL, ""] SetFilePointer* (hFile, lDistanceToMove, lpDistanceToMoveHigh, dwMoveMethod: INTEGER): INTEGER;
 
 PROCEDURE [windows-, KERNEL, ""] MoveFileA* (lpExistingFileName, lpNewFileName: INTEGER): INTEGER;
+
+PROCEDURE [windows-, KERNEL, ""] MoveFileW* (lpExistingFileName, lpNewFileName: INTEGER): INTEGER;
 
 PROCEDURE [windows-, KERNEL, ""] SetEndOfFile* (hFile: INTEGER): INTEGER;
 

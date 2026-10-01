@@ -39,14 +39,14 @@ VAR
     argc*: INTEGER;
     envc*: INTEGER;
 
-$IF (WINDOWS | DPMI32)
+$IF (WINDOWS | DPMI32 | DOS)
     (* Each argument as the range of the command line it occupies, filled in
        by ParamParse and read by GetArg. *)
     Params: ARRAY MAX_PARAM, 2 OF INTEGER;
 $END
 
 
-$IF (WINDOWS | DPMI32)
+$IF (WINDOWS | DPMI32 | DOS)
 PROCEDURE GetChar (adr: INTEGER): CHAR;
 VAR
     res: CHAR;
@@ -71,7 +71,17 @@ END GetChar;
    string, whatever the state was.
 
    Each argument is remembered as the range of the string it occupies; the
-   quotes are still in that range and GetArg is what takes them out. *)
+   quotes are still in that range and GetArg is what takes them out.  A
+   range that holds nothing but quotes is therefore an empty argument, and
+   one is made whenever a quoted stretch is opened and closed before any
+   other character belongs to it - which is how "" is one argument, and
+   not none.
+
+   The six states are dispatched with an IF chain and not with a CASE over
+   cond: a numeric CASE is a statement this dialect has, but not every compiler
+   for it implements one, so a module that may be compiled by another has to go
+   without.  The two are the same statement here - every label is a single value
+   and 6 has an empty body, which is what falling out of the chain does. *)
 PROCEDURE ParamParse;
 VAR
     p, count, cond: INTEGER;
@@ -100,14 +110,33 @@ BEGIN
     count := 0;
     WHILE (count < MAX_PARAM) & (cond # 6) DO
         c := GetChar(p);
-        CASE cond OF
-        |0: IF ChangeCond(0, 4, 1, cond, c) = 1 THEN Params[count, 0] := p END
-        |1: IF ChangeCond(0, 3, 1, cond, c) IN {0, 6} THEN Params[count, 1] := p - 1; INC(count) END
-        |3: IF ChangeCond(3, 1, 3, cond, c) = 6 THEN Params[count, 1] := p - 1; INC(count) END
-        |4: IF ChangeCond(5, 0, 5, cond, c) = 5 THEN Params[count, 0] := p END
-        |5: IF ChangeCond(5, 1, 5, cond, c) = 6 THEN Params[count, 1] := p - 1; INC(count) END
-        |6:
-        END;
+        IF cond = 0 THEN
+            (* A quote opens an argument, and an argument may be empty, so
+               the quote's own position is remembered as the range's start.
+               Every character the quotes then hold overwrites it below; if
+               nothing does, the range is the quotes alone and GetArg takes
+               them out, which is an empty argument. *)
+            IF ChangeCond(0, 4, 1, cond, c) IN {1, 4} THEN Params[count, 0] := p END
+        ELSIF cond = 1 THEN
+            IF ChangeCond(0, 3, 1, cond, c) IN {0, 6} THEN Params[count, 1] := p - 1; INC(count) END
+        ELSIF cond = 3 THEN
+            IF ChangeCond(3, 1, 3, cond, c) = 6 THEN Params[count, 1] := p - 1; INC(count) END
+        ELSIF cond = 4 THEN
+            (* A quote right after the opening one closes an argument that
+               held nothing and is still one argument.  The walk goes to
+               state 1 rather than back to 0 so that the argument is
+               committed by the same code as any other - on the blank or
+               the NUL that follows - and so that a character following the
+               quotes joins this argument instead of starting another one:
+               ""x is x, and "" is the empty argument. *)
+            IF ChangeCond(5, 1, 5, cond, c) = 6 THEN
+                Params[count, 1] := p - 1; INC(count)
+            ELSIF cond = 5 THEN
+                Params[count, 0] := p
+            END
+        ELSIF cond = 5 THEN
+            IF ChangeCond(5, 1, 5, cond, c) = 6 THEN Params[count, 1] := p - 1; INC(count) END
+        END ;
         INC(p)
     END;
     argc := count
@@ -128,7 +157,7 @@ BEGIN
         len := LEN(s) - 1;
         WHILE (j < len) & (i <= Params[n, 1]) DO
             c := GetChar(i);
-            IF c # '"' THEN
+            IF c # 22X THEN
                 s[j] := c;
                 INC(j)
             END;
@@ -159,7 +188,7 @@ END GetEnv;
 BEGIN
 
     envc := ArchArgs.envc;
-    $IF (WINDOWS | DPMI32)
+    $IF (WINDOWS | DPMI32 | DOS)
         ParamParse
     $ELSE
         argc := ArchArgs.argc

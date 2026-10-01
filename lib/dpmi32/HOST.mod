@@ -82,27 +82,34 @@ BEGIN
 END Flush;
 
 
-(* The command tail into argv. argv[0] is a constant and not the module path:
-   on this target the compiler finds lib\ beside the CURRENT directory, and
-   PATHS makes that directory out of argv[0] - a real path here would turn the
-   lookup into an absolute one pointing at wherever the binary was loaded
-   from, which is not where lib\ is (section 4 of doc/hxdos.txt).
+(* The command tail into argv. argv[0] is the module's own path, as the loader
+   knows it. The compiler seeds its lib\ lookup from the directory argv[0]
+   names - PATHS.split, then lib_path - so on this target that lookup lands
+   beside the compiler's image exactly as it does on Windows, Linux and macOS,
+   and not beside whatever directory the program happened to be started from
+   (section 8.3 of doc/dpmi32.txt).
 
-   Args parses these same rules over a command line it builds itself, and that
-   line begins with the real program path - which is exactly the argv[0] this
-   one must not have. That single difference is why the compiler parses here
-   instead of calling it; the samples, which want the program path, use Args. *)
+   DOS.ProgPath asks the loader. Two of the three dpmi32 targets answer: the
+   HX loader through AX=4B82h/4B86h - the dpmi32pe and dpmi32dll images - and
+   Adam from the path its extender reported at AX=EE02h when the program
+   started. The WDOSX kernel both other stubs carry answers neither call, so a
+   dpmi32le program has nothing to ask and reports -1 there; the bare name
+   stands in, and a name with no directory in it leaves the lookup relative to
+   the current directory, which is what this host did for every path before.
+   (Section 8.3 of doc/dpmi32.txt, and the measurement in DOS.GetModuleName.) *)
 PROCEDURE ParamParse;
 VAR
-    i: INTEGER;
+    i, len: INTEGER;
     c: CHAR;
     inq: BOOLEAN;
 
 BEGIN
-    (* arg0: synthesized as <current dir>\Compiler.exe; only the directory
-       matters, it is used to locate lib/dpmi32. *)
-    argv[0][0] := 0X;
-    Append(argv[0], "Compiler.exe");
+    (* arg0: the module path, which is what locates lib/dpmi32. *)
+    DOS.ProgPath(SYSTEM.ADR(argv[0][0]), MAXLEN, len);
+    IF len < 0 THEN
+        argv[0][0] := 0X;
+        Append(argv[0], "Compiler.exe")
+    END;
     argc := 1;
 
     tl := 0;
@@ -162,8 +169,8 @@ BEGIN
        below the root of its drive, carrying neither the drive nor a leading
        backslash, so prepending it would not turn a relative path into an
        absolute one. An empty prefix leaves every path this host builds
-       relative to the current directory, which is what the compiler's lib\
-       lookup is built around (section 4 of doc/hxdos.txt). *)
+       relative to the current directory, which is what a `-out` that names
+       only a file wants (section 8.3 of doc/dpmi32.txt). *)
     path[0] := 0X
 END GetCurrentDirectory;
 

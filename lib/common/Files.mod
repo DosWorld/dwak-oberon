@@ -1085,6 +1085,65 @@ BEGIN
 END Truncate;
 
 
+(* Flush - write the page cache out now, without closing anything.
+   Everything here flushes when it has to - a page leaving the cache, a
+   close, a truncate - and this is that same act asked for on its own, by a
+   caller whose file has to be readable by somebody else before it is
+   closed.  A failure is latched the way every other flush failure is, so
+   Ok answers it.
+   Parameters: F - the file. *)
+PROCEDURE Flush* (VAR F: File);
+BEGIN
+    BufFlush(F)
+END Flush;
+
+
+(* Resize - give the file an absolute length.  Truncate cuts at the cursor,
+   so it can only shorten and only to where the cursor already stands; this
+   takes the length itself, which is what the platform call under it takes
+   and what a Forth RESIZE-FILE is.  A longer file keeps the bytes it had
+   and reads as zeros past them; a shorter one loses what was past the new
+   end.  The cursor is left where it was when that is still inside the
+   file, as the standard's file position is not moved by a resize.
+   Parameters: F - the open file; size - the length to leave the file with.
+   Result: TRUE when the file is that long. *)
+PROCEDURE Resize* (VAR F: File; size: INTEGER): BOOLEAN;
+VAR
+    pos: INTEGER;
+    ok: BOOLEAN;
+
+BEGIN
+    IF size < 0 THEN
+        size := 0
+    END;
+    pos := Position(F);
+    BufFlush(F);
+
+    ok := TRUE;
+    IF ArchFile.Valid(F.handle) THEN
+        ok := ArchFile.Truncate(F.handle, size)
+    END;
+    IF ~ok THEN
+        F.wrErr := TRUE
+    END;
+
+    (* The page in the cache describes the file as it was: a page that ran
+       past the new end holds bytes the file no longer has, and a page the
+       longer file now covers was never read.  Dropping it and taking page
+       zero back is what makes the cache describe the file that is there. *)
+    F.size := size;
+    IF F.buf # NIL THEN
+        F.page := -1;
+        F.fill := 0;
+        F.cursor := 0;
+        BufFetch(F, 0)
+    END;
+    Seek(F, pos);
+
+    RETURN ok
+END Resize;
+
+
 (* MakeTempName - build a temporary file's name from a counter, so that
    two files opened in one run cannot collide.
    Parameters: dst - receives the name, always terminated. *)
@@ -1163,8 +1222,8 @@ BEGIN
 END Reset;
 
 
-(* ReWrite - create a file, or empty it if it is already there, and open
-   it for writing.
+(* ReWrite - create a file, or empty it if it is already there, and open it
+   for writing *and* for reading.
    Parameters: F - the file record to set up; name - the path.
    Result: TRUE when the file was created. *)
 PROCEDURE ReWrite* (VAR F: File; name: ARRAY OF CHAR): BOOLEAN;
@@ -1187,7 +1246,26 @@ BEGIN
     F.size := 0;
     CopyName(F, name);
 
+    (* Create makes the file exist and empty, and the handle it answers with
+       is the only handle some platforms will give a file this process has
+       just made - but it is a write-only one on some of them (Linux opens
+       the name "wb", macOS asks for O_WRONLY) and a read-write one on
+       others (Windows asks for GENERIC_READ OR GENERIC_WRITE).  A caller
+       that means to read back what it has just written cannot rely on that
+       handle, and a file being produced is routinely read back, so the file
+       is made first and opened again with the read-write open Reset uses.
+       The create handle is closed before the open is attempted: Windows
+       creates without sharing, so a second open while it is held would be
+       refused.  A file this process may write but not read keeps the
+       write-only handle it was created with, the way it always did. *)
     h := ArchFile.Create(name);
+    IF ArchFile.Valid(h) THEN
+        ArchFile.Close(h);
+        h := ArchFile.Open(name, ArchFile.OPEN_RW);
+        IF ~ArchFile.Valid(h) THEN
+            h := ArchFile.Open(name, ArchFile.OPEN_W)
+        END
+    END;
     ok := ArchFile.Valid(h);
 
     IF ok THEN
@@ -1406,6 +1484,56 @@ PROCEDURE FileExists* (FileName: ARRAY OF CHAR): BOOLEAN;
 BEGIN
     RETURN ArchFile.Exists(FileName)
 END FileExists;
+
+
+(* ExistsDir - whether DirName names a directory that is there.
+
+   The platform has answered this all along and the module never said so: every
+   ArchFile exports ExistsDir and CreateDir beside Exists, and a caller that
+   wanted them had to import the platform module - which is exactly the
+   portability this module exists to keep.  They are re-exported here and do
+   nothing else.
+
+   Parameters: DirName - the directory to ask about.
+   Result: TRUE when it is there and is a directory, which is not the same
+   question as FileExists: a platform answers FALSE here for a file, and on
+   most of them FALSE there for a directory. *)
+PROCEDURE ExistsDir* (DirName: ARRAY OF CHAR): BOOLEAN;
+BEGIN
+    RETURN ArchFile.ExistsDir(DirName)
+END ExistsDir;
+
+
+(* CreateDir - make the directory DirName.
+
+   One level, and not a path's worth of them: this is mkdir, and a parent that
+   is not there makes it fail on every platform rather than being created too.
+   That is the behaviour a caller wants to report - a dialog that made three
+   levels for a name the user typed would be hiding a typo.
+
+   Parameters: DirName - the directory to make.
+   Result: TRUE when it was made. *)
+PROCEDURE CreateDir* (DirName: ARRAY OF CHAR): BOOLEAN;
+BEGIN
+    RETURN ArchFile.CreateDir(DirName)
+END CreateDir;
+
+
+(* RemoveDir - remove the directory DirName.
+
+   The third of the three directory calls and the one that was missing here:
+   every ArchFile has exported RemoveDir beside ExistsDir and CreateDir all
+   along, and Delete is not it - DeleteFileW and its like refuse a directory,
+   so a caller with only this module could make a folder and never take it
+   away.  A directory that is not empty is refused, which is what every one of
+   those calls does; removing a tree is the caller's walk.
+
+   Parameters: DirName - the directory to remove.
+   Result: TRUE when it was removed. *)
+PROCEDURE RemoveDir* (DirName: ARRAY OF CHAR): BOOLEAN;
+BEGIN
+    RETURN ArchFile.RemoveDir(DirName)
+END RemoveDir;
 
 
 (* GetFTime - read the file's last-modified timestamp.
